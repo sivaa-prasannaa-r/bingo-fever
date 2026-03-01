@@ -38,5 +38,5 @@ jobs:
       - name: Install server dependencies
         run: cd server && npm install
 
-      - name: Check server entry point exists
-        run: test -f server/src/index.js
+      - name: Build server
+        run: cd server && npm run build
