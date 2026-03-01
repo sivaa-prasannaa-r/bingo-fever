@@ -3,11 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import useGameStore from '../store/gameStore';
 import { createPRNG, shuffleArray } from '../utils/prng';
 
-// Tiles lock randomly across LOCK_SPAN_MS; last one gets SETTLE_MS to finish.
-// Total visible animation = exactly 10 seconds.
-const LOCK_SPAN_MS = 8800;
-const SETTLE_MS    = 1200;
-const TOTAL_MS     = LOCK_SPAN_MS + SETTLE_MS; // 10 000 ms
+// Tiles lock randomly across LOCK_SPAN_MS then settle for SETTLE_MS.
+// Total animation = exactly 10 seconds.
+const LOCK_SPAN_MS = 13000;
+const SETTLE_MS    = 2000;
+const TOTAL_MS     = LOCK_SPAN_MS + SETTLE_MS; // 15 000 ms
 
 export default function SetupScreen({ send }) {
   const {
@@ -19,40 +19,85 @@ export default function SetupScreen({ send }) {
   const n     = room?.boardSize ?? 5;
   const total = n * n;
 
-  const [displayNums, setDisplayNums] = useState(() =>
-    Array.from({ length: total }, (_, i) => i + 1)
-  );
-  const [lockedTiles, setLockedTiles] = useState(() => new Array(total).fill(false));
+  // displayOrder[gridPos] = tileIdx — which tile occupies each grid cell
+  const [displayOrder, setDisplayOrder] = useState(() => [...Array(total).keys()]);
+  // displayNums[tileIdx] = number currently shown by that tile (cycling or locked)
+  const [displayNums,  setDisplayNums]  = useState(() => Array.from({ length: total }, (_, i) => i + 1));
+  // lockedTiles[tileIdx] = true when the tile has settled to its final number & position
+  const [lockedTiles,  setLockedTiles]  = useState(() => new Array(total).fill(false));
 
-  // Refs so the setInterval callback never has a stale closure
-  const lockedRef  = useRef([]);
-  const boardRef   = useRef(null);
+  const lockedRef = useRef([]);   // shared with setInterval — avoids stale closure
+  const boardRef  = useRef(null); // final arrangement, shared with setInterval
+  const orderRef  = useRef([]);   // mutable copy of displayOrder shared across timers
 
-  // ── Generate board + run shuffle animation ─────────────────────────────────
-  // Empty dep array: runs once on mount (Strict Mode double-invoke is safe —
-  // cleanup cancels the first run and the second run starts fresh).
+  // ── Single effect: generate board + run both animations ────────────────────
+  // Empty dep array → runs once on mount; Strict Mode double-invoke is safe
+  // because cleanup cancels all timers before the second run.
   useEffect(() => {
-    if (isSetupComplete) return; // already done (e.g. after reconnect)
+    if (isSetupComplete) return; // reconnect guard
 
-    // 1. Shuffle numbers 1..n²
+    // 1. Generate the shuffled board arrangement
     const prng = createPRNG(Date.now());
     const arr  = shuffleArray(Array.from({ length: total }, (_, i) => i + 1), prng);
     boardRef.current = arr;
     setBoardArrangement(arr);
 
-    // 2. Reset lock state
+    // 2. Start tiles in a randomly shuffled grid order
+    const initOrder = shuffleArray([...Array(total).keys()], createPRNG(Date.now() ^ 0x1234));
+    orderRef.current = [...initOrder];
+    setDisplayOrder([...initOrder]);
+
+    // 3. Reset lock state
     const locked = new Array(total).fill(false);
     lockedRef.current = locked;
     setLockedTiles([...locked]);
 
-    // 3. Tiles lock in a random order so the reveal looks like a real shuffle
-    const lockOrder = shuffleArray(
-      [...Array(total).keys()],
-      createPRNG(Date.now() ^ 0xBEEF)
-    );
-    const timeouts = lockOrder.map((tileIdx, order) => {
-      const lockTime = (order / Math.max(total - 1, 1)) * LOCK_SPAN_MS;
+    // ── Physical tile swaps (tiles move between grid cells) ─────────────────
+    const swapInterval = setInterval(() => {
+      const order = orderRef.current;
+      // Collect positions of unlocked tiles
+      const freePositions = order.reduce((acc, tileIdx, pos) => {
+        if (!locked[tileIdx]) acc.push(pos);
+        return acc;
+      }, []);
+      if (freePositions.length < 2) return;
+
+      // Swap one pair per tick for a calmer shuffle
+      const ai = Math.floor(Math.random() * freePositions.length);
+      let   bi = Math.floor(Math.random() * (freePositions.length - 1));
+      if (bi >= ai) bi++;
+      const posA = freePositions[ai];
+      const posB = freePositions[bi];
+      [order[posA], order[posB]] = [order[posB], order[posA]];
+      setDisplayOrder([...order]);
+    }, 1000);
+
+    // ── Number cycling (random values flicker in each unlocked tile) ─────────
+    const cycleInterval = setInterval(() => {
+      const finalArr = boardRef.current;
+      setDisplayNums(
+        Array.from({ length: total }, (_, tileIdx) =>
+          locked[tileIdx]
+            ? finalArr[tileIdx]
+            : Math.floor(Math.random() * total) + 1
+        )
+      );
+    }, 60);
+
+    // ── Tiles lock in random order, each snapping to its final grid position ─
+    const lockOrder = shuffleArray([...Array(total).keys()], createPRNG(Date.now() ^ 0xBEEF));
+    const lockTimeouts = lockOrder.map((tileIdx, lockSeq) => {
+      const lockTime = (lockSeq / Math.max(total - 1, 1)) * LOCK_SPAN_MS;
       return setTimeout(() => {
+        const order = orderRef.current;
+        // Move tileIdx to its natural final position (index === tileIdx)
+        const currentPos  = order.indexOf(tileIdx);
+        const occupierIdx = order[tileIdx]; // tile currently sitting at the target slot
+        if (currentPos !== tileIdx) {
+          order[currentPos] = occupierIdx;
+          order[tileIdx]    = tileIdx;
+          setDisplayOrder([...order]);
+        }
         locked[tileIdx] = true;
         setLockedTiles(prev => {
           const next = [...prev];
@@ -62,25 +107,17 @@ export default function SetupScreen({ send }) {
       }, lockTime);
     });
 
-    // 4. Cycle random numbers on every unlocked tile at 60 ms intervals
-    const interval = setInterval(() => {
-      const finalArr = boardRef.current;
-      setDisplayNums(
-        Array.from({ length: total }, (_, i) =>
-          locked[i] ? finalArr[i] : Math.floor(Math.random() * total) + 1
-        )
-      );
-    }, 60);
-
-    // 5. Mark complete after the full 10 s animation
+    // ── Mark complete after full 10 s ────────────────────────────────────────
     const doneTimer = setTimeout(() => {
-      clearInterval(interval);
+      clearInterval(swapInterval);
+      clearInterval(cycleInterval);
       setIsSetupComplete(true);
     }, TOTAL_MS);
 
     return () => {
-      timeouts.forEach(clearTimeout);
-      clearInterval(interval);
+      clearInterval(swapInterval);
+      clearInterval(cycleInterval);
+      lockTimeouts.forEach(clearTimeout);
       clearTimeout(doneTimer);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -119,17 +156,21 @@ export default function SetupScreen({ send }) {
         )}
       </AnimatePresence>
 
-      {/* Board with cycling numbers */}
+      {/* Board — tiles physically move between cells via Framer Motion layout */}
       <div className="setup-board-wrap">
         <div className="bingo-board" style={{ '--board-n': n }}>
-          {displayNums.slice(0, total).map((num, i) => (
+          {displayOrder.map((tileIdx) => (
             <motion.div
-              key={i}
-              className={`bingo-tile bingo-tile--setup${lockedTiles[i] ? ' bingo-tile--setup-locked' : ''}`}
-              animate={lockedTiles[i] ? { scale: [1, 1.2, 1] } : {}}
-              transition={{ duration: 0.25, ease: 'easeOut' }}
+              key={tileIdx}
+              layout
+              className={`bingo-tile bingo-tile--setup${lockedTiles[tileIdx] ? ' bingo-tile--setup-locked' : ''}`}
+              animate={lockedTiles[tileIdx] ? { scale: [1, 1.2, 1] } : {}}
+              transition={{
+                layout: { type: 'spring', stiffness: 110, damping: 20 },
+                scale:  { duration: 0.28, ease: 'easeOut' },
+              }}
             >
-              {num}
+              {displayNums[tileIdx]}
             </motion.div>
           ))}
         </div>
