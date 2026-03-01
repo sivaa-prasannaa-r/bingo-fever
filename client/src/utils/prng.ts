@@ -1,7 +1,8 @@
-// Mulberry32 — fast, seedable PRNG
-export function createPRNG(seed) {
+export type PRNG = () => number;
+
+export function createPRNG(seed: number): PRNG {
   let s = seed >>> 0;
-  return function () {
+  return function (): number {
     s |= 0;
     s = (s + 0x6d2b79f5) | 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
@@ -10,7 +11,7 @@ export function createPRNG(seed) {
   };
 }
 
-export function shuffleArray(arr, prng) {
+export function shuffleArray<T>(arr: T[], prng: PRNG): T[] {
   const result = [...arr];
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(prng() * (i + 1));

@@ -2,16 +2,37 @@ import * as PIXI from 'pixi.js';
 
 const PALETTE = [0xff6b9d, 0x4ecdc4, 0xffe66d, 0xff6b6b, 0x6c63ff, 0xa8edea, 0xfed6e3, 0x00d2ff];
 
+interface Particle {
+  gfx: PIXI.Graphics;
+  x: number; y: number;
+  vx: number; vy: number;
+  rot: number; rotV: number;
+  sc: number; scDir: number; scSpd: number;
+  scMin: number; scMax: number;
+}
+
+interface Confetti {
+  gfx: PIXI.Graphics;
+  x: number; y: number;
+  vx: number; vy: number;
+  rot: number; rotV: number;
+  life: number; maxLife: number;
+}
+
 export class ParticleSystem {
-  constructor(canvas) {
+  private canvas: HTMLCanvasElement;
+  private app: PIXI.Application | null = null;
+  private particles: Particle[] = [];
+  private confetti: Confetti[] = [];
+  private intensity = 1;
+  private _resizeHandler: () => void;
+
+  constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.app = null;
-    this.particles = [];
-    this.confetti = [];
-    this.intensity = 1;
+    this._resizeHandler = this._onResize.bind(this);
   }
 
-  async init() {
+  async init(): Promise<void> {
     this.app = new PIXI.Application();
     await this.app.init({
       canvas: this.canvas,
@@ -25,14 +46,14 @@ export class ParticleSystem {
 
     this._createBlobs();
     this.app.ticker.add(this._update.bind(this));
-    window.addEventListener('resize', this._onResize.bind(this));
+    window.addEventListener('resize', this._resizeHandler);
   }
 
-  _onResize() {
+  private _onResize(): void {
     this.app?.renderer.resize(window.innerWidth, window.innerHeight);
   }
 
-  _createBlobs() {
+  private _createBlobs(): void {
     const count = Math.min(100, Math.floor(window.innerWidth / 12));
     for (let i = 0; i < count; i++) {
       const g = new PIXI.Graphics();
@@ -41,7 +62,7 @@ export class ParticleSystem {
       g.circle(0, 0, r);
       g.fill({ color, alpha: 0.12 + Math.random() * 0.18 });
 
-      const p = {
+      const p: Particle = {
         gfx: g,
         x: Math.random() * window.innerWidth,
         y: Math.random() * window.innerHeight,
@@ -56,12 +77,12 @@ export class ParticleSystem {
         scMax: 1.4,
       };
       g.x = p.x; g.y = p.y; g.scale.set(p.sc);
-      this.app.stage.addChild(g);
+      this.app!.stage.addChild(g);
       this.particles.push(p);
     }
   }
 
-  _update(ticker) {
+  private _update(ticker: PIXI.Ticker): void {
     const dt = ticker.deltaTime;
     const W = window.innerWidth;
     const H = window.innerHeight;
@@ -96,7 +117,7 @@ export class ParticleSystem {
       c.gfx.rotation = c.rot;
       c.gfx.alpha = Math.max(0, c.life / c.maxLife);
       if (c.life <= 0) {
-        this.app.stage.removeChild(c.gfx);
+        this.app!.stage.removeChild(c.gfx);
         c.gfx.destroy();
         return false;
       }
@@ -104,7 +125,7 @@ export class ParticleSystem {
     });
   }
 
-  spawnConfetti(count = 160) {
+  spawnConfetti(count = 160): void {
     for (let i = 0; i < count; i++) {
       const g = new PIXI.Graphics();
       const color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
@@ -113,7 +134,7 @@ export class ParticleSystem {
       g.rect(-w / 2, -h / 2, w, h);
       g.fill({ color });
 
-      const c = {
+      const c: Confetti = {
         gfx: g,
         x: Math.random() * window.innerWidth,
         y: -15,
@@ -125,16 +146,15 @@ export class ParticleSystem {
         maxLife: 260,
       };
       g.x = c.x; g.y = c.y;
-      this.app.stage.addChild(g);
+      this.app!.stage.addChild(g);
       this.confetti.push(c);
     }
   }
 
-  setIntensity(v) { this.intensity = v; }
+  setIntensity(v: number): void { this.intensity = v; }
 
-  destroy() {
-    window.removeEventListener('resize', this._onResize.bind(this));
-    clearInterval(this._bgmTimer);
+  destroy(): void {
+    window.removeEventListener('resize', this._resizeHandler);
     this.app?.destroy(false);
   }
 }

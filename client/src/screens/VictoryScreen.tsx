@@ -4,6 +4,7 @@ import GlassPanel from '../components/ui/GlassPanel';
 import Button from '../components/ui/Button';
 import useGameStore from '../store/gameStore';
 import { audioEngine } from '../audio/audioEngine';
+import type { SendFn } from '../types';
 
 const LETTER_DELAY = 0.08;
 const BINGO_LETTERS = ['B', 'I', 'N', 'G', 'O'];
@@ -13,7 +14,14 @@ const LINE_GRADIENT_H = 'linear-gradient(90deg, transparent 0%, #ffe66d 25%, #ff
 const LINE_GRADIENT_V = 'linear-gradient(180deg, transparent 0%, #ffe66d 25%, #ff6b9d 50%, #ffe66d 75%, transparent 100%)';
 const LINE_GLOW = '0 0 10px rgba(255,230,109,0.9)';
 
-function LineMarker({ line, n }) {
+interface ReplayLine { type: string; index: number; }
+
+interface LineMarkerProps {
+  line: ReplayLine;
+  n: number;
+}
+
+function LineMarker({ line, n }: LineMarkerProps) {
   if (line.type === 'row') {
     const topPct = (line.index / n + 1 / (2 * n)) * 100;
     return (
@@ -63,8 +71,8 @@ function LineMarker({ line, n }) {
   return null;
 }
 
-function getCompletedLines(board, calledSet, n) {
-  const lines = [];
+function getCompletedLines(board: number[], calledSet: Set<number>, n: number): ReplayLine[] {
+  const lines: ReplayLine[] = [];
   for (let r = 0; r < n; r++) {
     if (board.slice(r * n, (r + 1) * n).every((x) => calledSet.has(x)))
       lines.push({ type: 'row', index: r });
@@ -80,7 +88,7 @@ function getCompletedLines(board, calledSet, n) {
   return lines;
 }
 
-function tileInLines(pos, lines, n) {
+function tileInLines(pos: number, lines: ReplayLine[], n: number): boolean {
   const r = Math.floor(pos / n), c = pos % n;
   return lines.some((l) => {
     if (l.type === 'row') return l.index === r;
@@ -90,24 +98,22 @@ function tileInLines(pos, lines, n) {
   });
 }
 
-export default function VictoryScreen({ send }) {
+export default function VictoryScreen({ send }: { send: SendFn }) {
   const { winner, gameEndReason, playerId, resetForNewGame, room, winnerBoard, calledNumbers } =
     useGameStore();
   const isWinner = winner?.id === playerId;
   const isHost = room?.host === playerId;
 
   const [showReplay, setShowReplay] = useState(false);
-  const [replayIdx, setReplayIdx] = useState(0);
+  const [replayIdx, setReplayIdx]   = useState(0);
   const prevLineCount = useRef(0);
 
   const n = winnerBoard ? Math.round(Math.sqrt(winnerBoard.length)) : 5;
 
-  // Derived replay state
   const revealedSet = new Set(calledNumbers.slice(0, replayIdx));
   const currentNum = calledNumbers[replayIdx - 1];
   const completedLines = winnerBoard ? getCompletedLines(winnerBoard, revealedSet, n) : [];
 
-  // Auto-advance + sounds
   useEffect(() => {
     if (!showReplay || replayIdx >= calledNumbers.length) return;
 
@@ -116,9 +122,8 @@ export default function VictoryScreen({ send }) {
       const isOnBoard = winnerBoard?.includes(nextNum);
 
       if (isOnBoard) {
-        // Check if this number completes a new line
         const nextSet = new Set([...revealedSet, nextNum]);
-        const nextLines = getCompletedLines(winnerBoard, nextSet, n);
+        const nextLines = getCompletedLines(winnerBoard!, nextSet, n);
         if (nextLines.length > completedLines.length) {
           audioEngine.playLineComplete();
         } else {
@@ -130,16 +135,12 @@ export default function VictoryScreen({ send }) {
     }, REPLAY_INTERVAL);
 
     return () => clearTimeout(t);
-  }, [showReplay, replayIdx, calledNumbers.length]);
+  }, [showReplay, replayIdx, calledNumbers.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Line-complete sound guard via ref (handles edge case of multiple lines at once)
   useEffect(() => {
     if (!showReplay) { prevLineCount.current = 0; return; }
     const extra = completedLines.length - prevLineCount.current;
-    if (extra > 1) {
-      // More than one line completed simultaneously — play once more
-      audioEngine.playLineComplete();
-    }
+    if (extra > 1) audioEngine.playLineComplete();
     prevLineCount.current = completedLines.length;
   }, [completedLines.length, showReplay]);
 
@@ -167,24 +168,23 @@ export default function VictoryScreen({ send }) {
             {isDone ? '✅ Replay complete' : `Replaying: ${replayIdx} / ${calledNumbers.length}`}
           </div>
 
-          {/* Board + strike overlays */}
           <div style={{ position: 'relative', width: 'min(88vw, 380px)', aspectRatio: '1' }}>
             <div
               className="replay-board"
-              style={{ '--replay-n': n, position: 'absolute', inset: 0 }}
+              style={{ '--replay-n': n, position: 'absolute', inset: 0 } as React.CSSProperties}
             >
               {winnerBoard.map((num, idx) => {
-                const isMarked = revealedSet.has(num);
+                const isMarked  = revealedSet.has(num);
                 const isCurrent = num === currentNum;
-                const inLine = isMarked && tileInLines(idx, completedLines, n);
+                const inLine    = isMarked && tileInLines(idx, completedLines, n);
                 return (
                   <motion.div
                     key={idx}
                     className={[
                       'replay-tile',
-                      isMarked ? 'replay-tile--marked' : '',
-                      inLine   ? 'replay-tile--in-line' : '',
-                      isCurrent ? 'replay-tile--current' : '',
+                      isMarked  ? 'replay-tile--marked'   : '',
+                      inLine    ? 'replay-tile--in-line'  : '',
+                      isCurrent ? 'replay-tile--current'  : '',
                     ].join(' ')}
                     animate={isCurrent ? { scale: [1, 1.2, 1] } : {}}
                     transition={{ duration: 0.3 }}
@@ -195,7 +195,6 @@ export default function VictoryScreen({ send }) {
               })}
             </div>
 
-            {/* Animated strike lines */}
             {completedLines.map((line) => (
               <LineMarker key={`${line.type}-${line.index}`} line={line} n={n} />
             ))}

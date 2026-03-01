@@ -1,5 +1,17 @@
 import { motion, AnimatePresence } from 'framer-motion';
 
+interface BingoTileProps {
+  number: number;
+  isMarked: boolean;
+  isInLine: boolean;
+  isCalled: boolean;
+  isPickable: boolean;
+  isJustCalled: boolean;
+  onTap: (number: number) => void;
+  size?: string;
+  'data-cell-index'?: number;
+}
+
 export default function BingoTile({
   number,
   isMarked,
@@ -10,7 +22,7 @@ export default function BingoTile({
   onTap,
   size = 'md',
   'data-cell-index': cellIndex,
-}) {
+}: BingoTileProps) {
   const handleTap = () => {
     if (isPickable || (isCalled && !isMarked)) onTap?.(number);
   };
@@ -48,7 +60,6 @@ export default function BingoTile({
             : { type: 'spring', stiffness: 400, damping: 20 }
       }
     >
-      {/* 3-second highlight when a number is just called */}
       <AnimatePresence>
         {isJustCalled && (
           <motion.div

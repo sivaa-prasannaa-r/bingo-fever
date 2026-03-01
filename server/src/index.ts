@@ -1,24 +1,25 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID } from 'crypto';
 import { RoomService } from './services/RoomService.js';
+import type { Room, Player } from './services/RoomService.js';
 
-const PORT = process.env.PORT || 3001;
-const TURN_SECS_DEFAULT = 15;   // fallback if room.turnWaitSecs is missing
+const PORT = Number(process.env.PORT) || 3001;
+const TURN_SECS_DEFAULT = 15;
 const roomService = new RoomService();
 
 // playerId -> WebSocket
-const clients = new Map();
+const clients = new Map<string, WebSocket>();
 
 const wss = new WebSocketServer({ port: PORT });
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function send(ws, type, payload) {
+function send(ws: WebSocket, type: string, payload: unknown): void {
   if (ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type, payload }));
 }
 
-function broadcast(room, type, payload, excludeId = null) {
+function broadcast(room: Room, type: string, payload: unknown, excludeId: string | null = null): void {
   for (const player of room.players) {
     if (player.id === excludeId) continue;
     const ws = clients.get(player.id);
@@ -26,12 +27,11 @@ function broadcast(room, type, payload, excludeId = null) {
   }
 }
 
-function broadcastRoom(room) {
+function broadcastRoom(room: Room): void {
   broadcast(room, 'ROOM_UPDATED', roomService.serialize(room));
 }
 
-// Build playerLines summary for NUMBER_CALLED broadcasts
-function buildPlayerLines(room) {
+function buildPlayerLines(room: Room) {
   return room.players.map((p) => ({
     playerId: p.id,
     lineCount: room.engine ? room.engine.countCompletedLines(p.board).length : 0,
@@ -41,19 +41,19 @@ function buildPlayerLines(room) {
 
 // ─── Connection ───────────────────────────────────────────────────────────────
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws: WebSocket) => {
   const playerId = randomUUID();
-  let player = { id: playerId, name: 'Player', connected: true, board: null, ready: false };
+  let player: Player = { id: playerId, name: 'Player', connected: true, board: null, ready: false, isBot: false };
   clients.set(playerId, ws);
 
   send(ws, 'CONNECTED', { playerId });
 
-  ws.on('message', (raw) => {
-    let msg;
+  ws.on('message', (raw: Buffer) => {
+    let msg: { type: string; payload?: Record<string, unknown> };
     try { msg = JSON.parse(raw.toString()); }
     catch { return; }
     try { dispatch(ws, player, msg.type, msg.payload ?? {}); }
-    catch (err) { send(ws, 'ERROR', { message: err.message }); }
+    catch (err) { send(ws, 'ERROR', { message: (err as Error).message }); }
   });
 
   ws.on('close', () => {
@@ -62,7 +62,6 @@ wss.on('connection', (ws) => {
     const room = roomService.getRoomOf(playerId);
     if (room) {
       broadcastRoom(room);
-      // If it was this player's turn and game is active, advance turn
       if (room.state === 'GAME' && room.currentTurn === playerId) {
         const connected = room.players.filter((p) => p.connected && p.id !== playerId);
         if (connected.length > 0) {
@@ -72,7 +71,6 @@ wss.on('connection', (ws) => {
           startTurnTimer(room);
         }
       }
-      // Allow 30 s to reconnect before evicting
       setTimeout(() => {
         if (!clients.has(playerId)) {
           const updated = roomService.removePlayer(playerId);
@@ -84,14 +82,14 @@ wss.on('connection', (ws) => {
 
   // ─── Message dispatcher ─────────────────────────────────────────────────────
 
-  function dispatch(ws, player, type, payload) {
+  function dispatch(ws: WebSocket, player: Player, type: string, payload: Record<string, unknown>): void {
     switch (type) {
 
       // ── Lobby / Room ──────────────────────────────────────────────────────
       case 'CREATE_ROOM': {
         player.name = sanitizeName(payload.playerName);
         const size = clampSize(payload.boardSize);
-        const room = roomService.createRoom(player, size, payload.turnWaitSecs);
+        const room = roomService.createRoom(player, size, payload.turnWaitSecs as number | undefined);
         send(ws, 'ROOM_CREATED', { room: roomService.serialize(room) });
         break;
       }
@@ -120,8 +118,8 @@ wss.on('connection', (ws) => {
         const bot = room.players.find((p) => p.isBot);
         if (!bot) throw new Error('No bot in room');
         const { difficulty } = payload;
-        if (!['easy', 'medium', 'hard'].includes(difficulty)) throw new Error('Invalid difficulty');
-        bot.difficulty = difficulty;
+        if (!['easy', 'medium', 'hard'].includes(difficulty as string)) throw new Error('Invalid difficulty');
+        bot.difficulty = difficulty as 'easy' | 'medium' | 'hard';
         bot.botTurnCount = 0;
         broadcastRoom(room);
         break;
@@ -141,7 +139,7 @@ wss.on('connection', (ws) => {
         const room = requireRoom(playerId);
         if (room.host !== playerId) throw new Error('Only host can start setup');
         if (room.state !== 'LOBBY') throw new Error('Already started');
-        const size = clampSize(payload.boardSize ?? room.boardSize);
+        const size = clampSize((payload.boardSize as number | undefined) ?? room.boardSize);
         roomService.startSetup(room.id, size, (r) => {
           for (const p of r.players) {
             const pw = clients.get(p.id);
@@ -159,7 +157,7 @@ wss.on('connection', (ws) => {
       }
 
       case 'SUBMIT_BOARD': {
-        const room = roomService.submitBoard(playerId, payload.arrangement);
+        const room = roomService.submitBoard(playerId, payload.arrangement as number[]);
         broadcastRoom(room);
         if (roomService.allReady(room)) beginCountdown(room);
         break;
@@ -179,9 +177,8 @@ wss.on('connection', (ws) => {
         }
 
         clearTurnTimer(room);
-        room.engine.callNumber(number);
+        room.engine!.callNumber(number);
 
-        // Advance turn to next connected player
         const connected = room.players.filter((p) => p.connected);
         const curIdx = connected.findIndex((p) => p.id === playerId);
         const nextIdx = (curIdx + 1) % connected.length;
@@ -199,8 +196,7 @@ wss.on('connection', (ws) => {
           turnDeadlineMs: nextDeadline,
         });
 
-        // All numbers exhausted — game over
-        if (room.engine.isExhausted()) {
+        if (room.engine!.isExhausted()) {
           roomService.endGame(room);
           broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
           break;
@@ -214,7 +210,7 @@ wss.on('connection', (ws) => {
         const room = requireRoom(playerId);
         if (room.state !== 'GAME') return;
         const { number } = payload;
-        if (!room.engine.calledNumbers.includes(number)) return;
+        if (!room.engine!.calledNumbers.includes(number as number)) return;
         broadcast(room, 'TILE_MARKED', { playerId, number });
         break;
       }
@@ -236,7 +232,7 @@ wss.on('connection', (ws) => {
         break;
       }
 
-      // ── Play Again — reset to LOBBY (host only) ───────────────────────────
+      // ── Play Again ────────────────────────────────────────────────────────
       case 'PLAY_AGAIN': {
         const room = requireRoom(playerId);
         if (room.host !== playerId) {
@@ -260,7 +256,7 @@ wss.on('connection', (ws) => {
 
         clients.delete(playerId);
         existing.connected = true;
-        clients.set(savedPlayerId, ws);
+        clients.set(savedPlayerId as string, ws);
         Object.assign(player, existing);
 
         send(ws, 'RECONNECTED', {
@@ -282,15 +278,14 @@ wss.on('connection', (ws) => {
 
 // ─── Turn timer ───────────────────────────────────────────────────────────────
 
-function roomSecs(room) {
+function roomSecs(room: Room): number {
   return room.turnWaitSecs ?? TURN_SECS_DEFAULT;
 }
 
-function startTurnTimer(room) {
-  clearTimeout(room.turnTimer);
+function startTurnTimer(room: Room): void {
+  clearTimeout(room.turnTimer ?? undefined);
   const currentPlayer = room.players.find((p) => p.id === room.currentTurn);
   if (currentPlayer?.isBot) {
-    // Bot "thinks" for 1.0–1.8 s then auto-calls the smart move
     const delay = 1000 + Math.random() * 800;
     room.turnDeadlineMs = Date.now() + delay;
     room.turnTimer = setTimeout(() => botTakeTurn(room), delay);
@@ -301,19 +296,19 @@ function startTurnTimer(room) {
   room.turnTimer = setTimeout(() => autoCallNumber(room), secs * 1000);
 }
 
-function clearTurnTimer(room) {
-  clearTimeout(room.turnTimer);
+function clearTurnTimer(room: Room): void {
+  clearTimeout(room.turnTimer ?? undefined);
   room.turnTimer = null;
   room.turnDeadlineMs = null;
 }
 
-function autoCallNumber(room) {
+function autoCallNumber(room: Room): void {
   if (room.state !== 'GAME') return;
-  const pool = room.engine.numberPool;
+  const pool = room.engine!.numberPool;
   if (pool.length === 0) return;
 
   const number = pool[Math.floor(Math.random() * pool.length)];
-  room.engine.callNumber(number);
+  room.engine!.callNumber(number);
 
   const connected = room.players.filter((p) => p.connected);
   if (connected.length === 0) return;
@@ -327,13 +322,13 @@ function autoCallNumber(room) {
 
   broadcast(room, 'NUMBER_CALLED', {
     number,
-    calledBy: null,  // null = auto-called (timer expired)
+    calledBy: null,
     nextTurn: room.currentTurn,
     playerLines,
     turnDeadlineMs: nextDeadline,
   });
 
-  if (room.engine.isExhausted()) {
+  if (room.engine!.isExhausted()) {
     clearTurnTimer(room);
     roomService.endGame(room);
     broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
@@ -343,9 +338,9 @@ function autoCallNumber(room) {
   startTurnTimer(room);
 }
 
-function pickBotNumber(room, bot) {
-  const calledSet = new Set(room.engine.calledNumbers);
-  const uncalledOnBoard = bot.board.filter((num) => !calledSet.has(num));
+function pickBotNumber(room: Room, bot: Player): number | null {
+  const calledSet = new Set(room.engine!.calledNumbers);
+  const uncalledOnBoard = bot.board!.filter((num) => !calledSet.has(num));
   if (uncalledOnBoard.length === 0) return null;
 
   const difficulty = bot.difficulty ?? 'hard';
@@ -354,16 +349,16 @@ function pickBotNumber(room, bot) {
     return uncalledOnBoard[Math.floor(Math.random() * uncalledOnBoard.length)];
   }
   if (difficulty === 'hard') {
-    return room.engine.getBotMove(bot.board);
+    return room.engine!.getBotMove(bot.board!);
   }
   // medium: odd turns = smart, even turns = random
   bot.botTurnCount = (bot.botTurnCount ?? 0) + 1;
   return bot.botTurnCount % 2 === 1
-    ? room.engine.getBotMove(bot.board)
+    ? room.engine!.getBotMove(bot.board!)
     : uncalledOnBoard[Math.floor(Math.random() * uncalledOnBoard.length)];
 }
 
-function botTakeTurn(room) {
+function botTakeTurn(room: Room): void {
   if (room.state !== 'GAME') return;
   const bot = room.players.find((p) => p.isBot && p.id === room.currentTurn);
   if (!bot) return;
@@ -372,12 +367,10 @@ function botTakeTurn(room) {
   if (best == null) return;
 
   clearTurnTimer(room);
-  room.engine.callNumber(best);
+  room.engine!.callNumber(best);
 
-  // Check if bot has won
-  const botResult = room.engine.validateWin(bot.board);
+  const botResult = room.engine!.validateWin(bot.board!);
 
-  // Advance turn to next connected player
   const connected = room.players.filter((p) => p.connected);
   const curIdx = connected.findIndex((p) => p.id === bot.id);
   const nextIdx = (curIdx + 1) % connected.length;
@@ -405,7 +398,7 @@ function botTakeTurn(room) {
     return;
   }
 
-  if (room.engine.isExhausted()) {
+  if (room.engine!.isExhausted()) {
     roomService.endGame(room);
     broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
     return;
@@ -416,7 +409,7 @@ function botTakeTurn(room) {
 
 // ─── Game flow helpers ────────────────────────────────────────────────────────
 
-function beginCountdown(room) {
+function beginCountdown(room: Room): void {
   room.state = 'COUNTDOWN';
   let count = 3;
   const tick = () => {
@@ -431,7 +424,7 @@ function beginCountdown(room) {
   tick();
 }
 
-function startGame(room) {
+function startGame(room: Room): void {
   roomService.startGame(room);
   const deadline = Date.now() + roomSecs(room) * 1000;
   broadcast(room, 'GAME_STARTED', {
@@ -444,17 +437,17 @@ function startGame(room) {
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
-function requireRoom(playerId) {
+function requireRoom(playerId: string): Room {
   const room = roomService.getRoomOf(playerId);
   if (!room) throw new Error('Not in a room');
   return room;
 }
 
-function sanitizeName(raw) {
+function sanitizeName(raw: unknown): string {
   return String(raw ?? 'Player').trim().slice(0, 20) || 'Player';
 }
 
-function clampSize(v) {
+function clampSize(v: unknown): number {
   return Math.max(5, Math.min(10, Number(v) || 5));
 }
 

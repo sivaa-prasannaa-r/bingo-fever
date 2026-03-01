@@ -1,5 +1,7 @@
+import type { CompletedLine } from '../types';
+
 /** Returns which completed-line indices a given cell position belongs to */
-export function getCellLineIds(position, completedLines, n) {
+export function getCellLineIds(position: number, completedLines: CompletedLine[], n: number): CompletedLine[] {
   const row = Math.floor(position / n);
   const col = position % n;
   return completedLines.filter((line) => {
@@ -11,14 +13,14 @@ export function getCellLineIds(position, completedLines, n) {
   });
 }
 
-export function isInLine(position, completedLines, n) {
+export function isInLine(position: number, completedLines: CompletedLine[], n: number): boolean {
   return getCellLineIds(position, completedLines, n).length > 0;
 }
 
 /** Returns all completed lines given a board + marked numbers */
-export function getAllCompletedLines(board, markedNumbers, n) {
+export function getAllCompletedLines(board: number[], markedNumbers: Set<number>, n: number): CompletedLine[] {
   const marked = new Set(markedNumbers);
-  const lines = [];
+  const lines: CompletedLine[] = [];
 
   for (let r = 0; r < n; r++) {
     const row = board.slice(r * n, (r + 1) * n);
@@ -36,18 +38,18 @@ export function getAllCompletedLines(board, markedNumbers, n) {
   return lines;
 }
 
-/** Client-side win check — returns first completed line or null (backward compat) */
-export function checkWin(board, markedNumbers, n) {
+/** Client-side win check — returns first completed line or null */
+export function checkWin(board: number[], markedNumbers: Set<number>, n: number): CompletedLine | null {
   const lines = getAllCompletedLines(board, markedNumbers, n);
   return lines.length > 0 ? lines[0] : null;
 }
 
 /** Count near-wins (lines with exactly 1 cell remaining) */
-export function nearWinCount(board, markedNumbers, n) {
+export function nearWinCount(board: number[], markedNumbers: Set<number>, n: number): number {
   const marked = new Set(markedNumbers);
   let count = 0;
 
-  const checkLine = (cells) => {
+  const checkLine = (cells: number[]) => {
     const unmarked = cells.filter((num) => !marked.has(num));
     if (unmarked.length === 1) count++;
   };

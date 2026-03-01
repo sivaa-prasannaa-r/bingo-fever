@@ -2,15 +2,22 @@ import { useRef, useCallback, useState } from 'react';
 import { motion } from 'framer-motion';
 import { audioEngine } from '../audio/audioEngine';
 
-/**
- * Drag-and-drop number deck for Manual Placement Mode.
- * Uses pointer events (works on both mouse and touch).
- */
-export default function NumberDeck({ deck, onPlace }) {
-  const [dragging, setDragging] = useState(null); // { number, x, y }
-  const numberRef = useRef(null); // stable ref to avoid stale closure
+interface DragState {
+  number: number;
+  x: number;
+  y: number;
+}
 
-  const startDrag = useCallback((number, e) => {
+interface NumberDeckProps {
+  deck: number[];
+  onPlace: (number: number, cellIndex: number) => void;
+}
+
+export default function NumberDeck({ deck, onPlace }: NumberDeckProps) {
+  const [dragging, setDragging] = useState<DragState | null>(null);
+  const numberRef = useRef<number | null>(null);
+
+  const startDrag = useCallback((number: number, e: React.PointerEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -18,18 +25,17 @@ export default function NumberDeck({ deck, onPlace }) {
     audioEngine.playDragLift();
     setDragging({ number, x: e.clientX, y: e.clientY });
 
-    const onMove = (me) => {
-      setDragging({ number: numberRef.current, x: me.clientX, y: me.clientY });
+    const onMove = (me: PointerEvent) => {
+      setDragging({ number: numberRef.current!, x: me.clientX, y: me.clientY });
     };
 
-    const onUp = (ue) => {
-      // Find the board cell visually under the pointer
+    const onUp = (ue: PointerEvent) => {
       const el = document.elementFromPoint(ue.clientX, ue.clientY);
-      const cell = el?.closest('[data-cell-index]');
+      const cell = el?.closest('[data-cell-index]') as HTMLElement | null;
       if (cell) {
-        const idx = parseInt(cell.dataset.cellIndex, 10);
+        const idx = parseInt(cell.dataset.cellIndex!, 10);
         audioEngine.playSnap();
-        onPlace(numberRef.current, idx);
+        onPlace(numberRef.current!, idx);
       }
       numberRef.current = null;
       setDragging(null);
@@ -62,7 +68,6 @@ export default function NumberDeck({ deck, onPlace }) {
         ))}
       </div>
 
-      {/* Ghost card that follows the pointer */}
       {dragging && (
         <div
           className="number-card number-card--ghost"

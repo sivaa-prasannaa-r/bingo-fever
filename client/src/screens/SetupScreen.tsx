@@ -2,14 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import useGameStore from '../store/gameStore';
 import { createPRNG, shuffleArray } from '../utils/prng';
+import type { SendFn } from '../types';
 
-// Tiles lock randomly across LOCK_SPAN_MS then settle for SETTLE_MS.
-// Total animation = exactly 10 seconds.
 const LOCK_SPAN_MS = 13000;
 const SETTLE_MS    = 2000;
-const TOTAL_MS     = LOCK_SPAN_MS + SETTLE_MS; // 15 000 ms
+const TOTAL_MS     = LOCK_SPAN_MS + SETTLE_MS;
 
-export default function SetupScreen({ send }) {
+export default function SetupScreen({ send }: { send: SendFn }) {
   const {
     room, playerId,
     isSetupComplete, setIsSetupComplete,
@@ -19,50 +18,38 @@ export default function SetupScreen({ send }) {
   const n     = room?.boardSize ?? 5;
   const total = n * n;
 
-  // displayOrder[gridPos] = tileIdx — which tile occupies each grid cell
-  const [displayOrder, setDisplayOrder] = useState(() => [...Array(total).keys()]);
-  // displayNums[tileIdx] = number currently shown by that tile (cycling or locked)
-  const [displayNums,  setDisplayNums]  = useState(() => Array.from({ length: total }, (_, i) => i + 1));
-  // lockedTiles[tileIdx] = true when the tile has settled to its final number & position
-  const [lockedTiles,  setLockedTiles]  = useState(() => new Array(total).fill(false));
+  const [displayOrder, setDisplayOrder] = useState<number[]>(() => [...Array(total).keys()]);
+  const [displayNums,  setDisplayNums]  = useState<number[]>(() => Array.from({ length: total }, (_, i) => i + 1));
+  const [lockedTiles,  setLockedTiles]  = useState<boolean[]>(() => Array.from({ length: total }, () => false));
 
-  const lockedRef = useRef([]);   // shared with setInterval — avoids stale closure
-  const boardRef  = useRef(null); // final arrangement, shared with setInterval
-  const orderRef  = useRef([]);   // mutable copy of displayOrder shared across timers
+  const lockedRef = useRef<boolean[]>([]);
+  const boardRef  = useRef<number[] | null>(null);
+  const orderRef  = useRef<number[]>([]);
 
-  // ── Single effect: generate board + run both animations ────────────────────
-  // Empty dep array → runs once on mount; Strict Mode double-invoke is safe
-  // because cleanup cancels all timers before the second run.
   useEffect(() => {
-    if (isSetupComplete) return; // reconnect guard
+    if (isSetupComplete) return;
 
-    // 1. Generate the shuffled board arrangement
     const prng = createPRNG(Date.now());
     const arr  = shuffleArray(Array.from({ length: total }, (_, i) => i + 1), prng);
     boardRef.current = arr;
     setBoardArrangement(arr);
 
-    // 2. Start tiles in a randomly shuffled grid order
     const initOrder = shuffleArray([...Array(total).keys()], createPRNG(Date.now() ^ 0x1234));
     orderRef.current = [...initOrder];
     setDisplayOrder([...initOrder]);
 
-    // 3. Reset lock state
-    const locked = new Array(total).fill(false);
+    const locked: boolean[] = Array.from({ length: total }, () => false);
     lockedRef.current = locked;
     setLockedTiles([...locked]);
 
-    // ── Physical tile swaps (tiles move between grid cells) ─────────────────
     const swapInterval = setInterval(() => {
       const order = orderRef.current;
-      // Collect positions of unlocked tiles
-      const freePositions = order.reduce((acc, tileIdx, pos) => {
+      const freePositions = order.reduce<number[]>((acc, tileIdx, pos) => {
         if (!locked[tileIdx]) acc.push(pos);
         return acc;
       }, []);
       if (freePositions.length < 2) return;
 
-      // Swap one pair per tick for a calmer shuffle
       const ai = Math.floor(Math.random() * freePositions.length);
       let   bi = Math.floor(Math.random() * (freePositions.length - 1));
       if (bi >= ai) bi++;
@@ -72,9 +59,8 @@ export default function SetupScreen({ send }) {
       setDisplayOrder([...order]);
     }, 1000);
 
-    // ── Number cycling (random values flicker in each unlocked tile) ─────────
     const cycleInterval = setInterval(() => {
-      const finalArr = boardRef.current;
+      const finalArr = boardRef.current!;
       setDisplayNums(
         Array.from({ length: total }, (_, tileIdx) =>
           locked[tileIdx]
@@ -84,15 +70,13 @@ export default function SetupScreen({ send }) {
       );
     }, 60);
 
-    // ── Tiles lock in random order, each snapping to its final grid position ─
     const lockOrder = shuffleArray([...Array(total).keys()], createPRNG(Date.now() ^ 0xBEEF));
     const lockTimeouts = lockOrder.map((tileIdx, lockSeq) => {
       const lockTime = (lockSeq / Math.max(total - 1, 1)) * LOCK_SPAN_MS;
       return setTimeout(() => {
         const order = orderRef.current;
-        // Move tileIdx to its natural final position (index === tileIdx)
         const currentPos  = order.indexOf(tileIdx);
-        const occupierIdx = order[tileIdx]; // tile currently sitting at the target slot
+        const occupierIdx = order[tileIdx];
         if (currentPos !== tileIdx) {
           order[currentPos] = occupierIdx;
           order[tileIdx]    = tileIdx;
@@ -107,7 +91,6 @@ export default function SetupScreen({ send }) {
       }, lockTime);
     });
 
-    // ── Mark complete after full 10 s ────────────────────────────────────────
     const doneTimer = setTimeout(() => {
       clearInterval(swapInterval);
       clearInterval(cycleInterval);
@@ -122,7 +105,6 @@ export default function SetupScreen({ send }) {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Submit once animation is done ─────────────────────────────────────────
   useEffect(() => {
     if (isSetupComplete && boardArrangement) {
       send('SUBMIT_BOARD', { arrangement: boardArrangement });
@@ -131,7 +113,6 @@ export default function SetupScreen({ send }) {
 
   return (
     <div className="screen setup-screen">
-      {/* Status label */}
       <AnimatePresence mode="wait">
         {!isSetupComplete ? (
           <motion.p
@@ -156,9 +137,8 @@ export default function SetupScreen({ send }) {
         )}
       </AnimatePresence>
 
-      {/* Board — tiles physically move between cells via Framer Motion layout */}
       <div className="setup-board-wrap">
-        <div className="bingo-board" style={{ '--board-n': n }}>
+        <div className="bingo-board" style={{ '--board-n': n } as React.CSSProperties}>
           {displayOrder.map((tileIdx) => (
             <motion.div
               key={tileIdx}
@@ -176,7 +156,6 @@ export default function SetupScreen({ send }) {
         </div>
       </div>
 
-      {/* Player readiness */}
       <div className="setup-players">
         {room?.players.map((p) => (
           <div key={p.id} className={`setup-player${p.ready ? ' setup-player--ready' : ''}`}>

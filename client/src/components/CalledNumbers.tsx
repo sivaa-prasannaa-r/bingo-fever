@@ -4,7 +4,7 @@ import useGameStore from '../store/gameStore';
 
 export default function CalledNumbers() {
   const calledNumbers = useGameStore((s) => s.calledNumbers);
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (scrollRef.current) {

@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { audioEngine } from './audio/audioEngine';
 import { useWebSocket } from './hooks/useWebSocket';
 import useGameStore from './store/gameStore';
+import type { Screen, SendFn } from './types';
 
 import LobbyScreen   from './screens/LobbyScreen';
 import RoomScreen     from './screens/RoomScreen';
@@ -13,7 +14,9 @@ import VictoryScreen  from './screens/VictoryScreen';
 import VolumeControl    from './components/VolumeControl';
 import ConnectionStatus from './components/ConnectionStatus';
 
-const SCREENS = {
+type ScreenComponent = React.ComponentType<{ send: SendFn }>;
+
+const SCREENS: Record<Screen, ScreenComponent> = {
   LOBBY:   LobbyScreen,
   ROOM:    RoomScreen,
   SETUP:   SetupScreen,
@@ -21,7 +24,7 @@ const SCREENS = {
   VICTORY: VictoryScreen,
 };
 
-const GRADIENTS = {
+const GRADIENTS: Record<Screen, string> = {
   LOBBY:   'linear-gradient(135deg,#C1185A 0%,#7B1FA2 40%,#00796B 100%)',
   ROOM:    'linear-gradient(135deg,#E64A19 0%,#F9A825 50%,#00838F 100%)',
   SETUP:   'linear-gradient(135deg,#00695C 0%,#6A1B9A 55%,#AD1457 100%)',
@@ -29,20 +32,20 @@ const GRADIENTS = {
   VICTORY: 'linear-gradient(135deg,#F57F17 0%,#AD1457 40%,#4527A0 75%,#006064 100%)',
 };
 
-const INTENSITY = { LOBBY: 1, ROOM: 1.1, SETUP: 1.3, GAME: 1.6, VICTORY: 2.8 };
+const INTENSITY: Record<Screen, number> = { LOBBY: 1, ROOM: 1.1, SETUP: 1.3, GAME: 1.6, VICTORY: 2.8 };
 
 export default function App() {
   const screen         = useGameStore((s) => s.screen);
   const countdownValue = useGameStore((s) => s.countdownValue);
-  const canvasRef  = useRef(null);
-  const psRef      = useRef(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const psRef      = useRef<{ setIntensity: (v: number) => void; spawnConfetti: (n: number) => void; destroy: () => void } | null>(null);
   const audioReady = useRef(false);
 
   const { send } = useWebSocket();
 
   // ── Particle system ───────────────────────────────────────────────────────
   useEffect(() => {
-    let ps;
+    let ps: { destroy: () => void } | undefined;
     let cancelled = false;
 
     async function start() {
@@ -50,9 +53,9 @@ export default function App() {
         const { ParticleSystem } = await import('./pixi/ParticleSystem');
         if (cancelled || !canvasRef.current) return;
         ps = new ParticleSystem(canvasRef.current);
-        await ps.init();
+        await (ps as InstanceType<typeof ParticleSystem>).init();
         if (cancelled) { ps.destroy(); return; }
-        psRef.current = ps;
+        psRef.current = ps as typeof psRef.current;
       } catch (err) {
         console.warn('[Particles] PixiJS init failed:', err);
       }
@@ -92,7 +95,6 @@ export default function App() {
         style={{ backgroundImage: GRADIENTS[screen] }}
       />
 
-      {/* Screen crossfade */}
       <AnimatePresence mode="wait">
         <motion.div
           key={screen}
@@ -106,7 +108,6 @@ export default function App() {
         </motion.div>
       </AnimatePresence>
 
-      {/* Global countdown overlay — shows on top of any screen (Setup → Game) */}
       <AnimatePresence>
         {countdownValue !== null && (
           <motion.div

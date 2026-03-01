@@ -3,12 +3,18 @@ import { motion } from 'framer-motion';
 import BingoTile from './BingoTile';
 import { isInLine } from '../../utils/boardUtils';
 import useGameStore from '../../store/gameStore';
+import type { CompletedLine, SendFn } from '../../types';
 
 const LINE_GRADIENT_H = 'linear-gradient(90deg, transparent 0%, #ffe66d 25%, #ff6b9d 50%, #ffe66d 75%, transparent 100%)';
 const LINE_GRADIENT_V = 'linear-gradient(180deg, transparent 0%, #ffe66d 25%, #ff6b9d 50%, #ffe66d 75%, transparent 100%)';
 const LINE_GLOW = '0 0 10px rgba(255,230,109,0.9)';
 
-function LineMarker({ line, n }) {
+interface LineMarkerProps {
+  line: CompletedLine;
+  n: number;
+}
+
+function LineMarker({ line, n }: LineMarkerProps) {
   if (line.type === 'row') {
     const topPct = (line.index / n + 1 / (2 * n)) * 100;
     return (
@@ -86,7 +92,7 @@ function LineMarker({ line, n }) {
   return null;
 }
 
-export default function BingoBoard({ send }) {
+export default function BingoBoard({ send }: { send: SendFn }) {
   const {
     room,
     boardArrangement,
@@ -103,8 +109,7 @@ export default function BingoBoard({ send }) {
   const n = room?.boardSize ?? 5;
   const isMyTurn = currentTurn === playerId;
 
-  // Track the just-called number with a 2-second highlight
-  const [justCalledNumber, setJustCalledNumber] = useState(null);
+  const [justCalledNumber, setJustCalledNumber] = useState<number | null>(null);
   useEffect(() => {
     if (lastCalledNumber == null) return;
     setJustCalledNumber(lastCalledNumber);
@@ -123,13 +128,11 @@ export default function BingoBoard({ send }) {
   const calledSet = new Set(calledNumbers);
   const myLines = completedLines.filter((l) => l.playerId === playerId);
 
-  const handleTap = (number) => {
-    // On your turn: tap any uncalled tile to call it
+  const handleTap = (number: number) => {
     if (isMyTurn && !calledSet.has(number)) {
       send('CALL_NUMBER', { number });
       return;
     }
-    // Manual mark when autoMark is off
     if (!autoMark && calledSet.has(number) && !markedNumbers.has(number)) {
       markNumber(number);
       send('MARK_TILE', { number });
@@ -140,7 +143,7 @@ export default function BingoBoard({ send }) {
     <div style={{ position: 'relative', width: '100%', maxWidth: 'min(92vw, 400px)', aspectRatio: '1', overflow: 'hidden' }}>
       <div
         className="bingo-board"
-        style={{ '--board-n': n, position: 'absolute', inset: 0, maxWidth: 'none', aspectRatio: 'unset' }}
+        style={{ '--board-n': n, position: 'absolute', inset: 0, maxWidth: 'none', aspectRatio: 'unset' } as React.CSSProperties}
       >
         {boardArrangement.map((num, i) => (
           <BingoTile
@@ -157,7 +160,6 @@ export default function BingoBoard({ send }) {
         ))}
       </div>
 
-      {/* Animated strikethrough lines */}
       {myLines.map((line) => (
         <LineMarker key={`${line.type}-${line.index}`} line={line} n={n} />
       ))}

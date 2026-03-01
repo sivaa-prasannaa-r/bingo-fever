@@ -1,53 +1,132 @@
 import { create } from 'zustand';
+import type { Screen, ConnectionState, SerializedRoom, CompletedLine, Winner, PlayerLineInfo } from '../types';
 
-const useGameStore = create((set, get) => ({
-  // ── Connection ──────────────────────────────────────────────────────────────
+interface VolumeState {
+  masterVolume: number;
+  musicVolume: number;
+  sfxVolume: number;
+}
+
+export interface GameState extends VolumeState {
+  // Connection
+  playerId: string | null;
+  connectionState: ConnectionState;
+
+  // Screen
+  screen: Screen;
+
+  // Identity
+  playerName: string;
+
+  // Room
+  room: SerializedRoom | null;
+
+  // Setup
+  setupMode: string | null;
+  boardArrangement: number[] | null;
+  setupDeadlineMs: number | null;
+  isSetupComplete: boolean;
+
+  // Game
+  calledNumbers: number[];
+  lastCalledNumber: number | null;
+  lastCalledBy: { id: string; name: string } | null;
+  markedNumbers: Set<number>;
+  autoMark: boolean;
+  completedLines: CompletedLine[];
+  pendingWin: boolean;
+
+  // Turn-based
+  currentTurn: string | null;
+  turnDeadlineMs: number | null;
+  playerLines: Record<string, PlayerLineInfo>;
+
+  // Victory
+  winner: Winner | null;
+  gameEndReason: string | null;
+  winnerBoard: number[] | null;
+
+  // Countdown
+  countdownValue: number | null;
+
+  // Actions
+  setScreen: (screen: Screen) => void;
+  setPlayerName: (name: string) => void;
+  setPlayerId: (id: string | null) => void;
+  setConnectionState: (state: ConnectionState) => void;
+  setRoom: (room: SerializedRoom | null) => void;
+  setSetupMode: (mode: string | null) => void;
+  setBoardArrangement: (arr: number[] | null) => void;
+  setSetupDeadlineMs: (ms: number | null) => void;
+  setIsSetupComplete: (v: boolean) => void;
+  addCalledNumber: (number: number) => void;
+  setCalledNumbers: (numbers: number[]) => void;
+  markNumber: (number: number) => void;
+  setAutoMark: (v: boolean) => void;
+  addCompletedLine: (line: CompletedLine) => void;
+  setCompletedLines: (lines: CompletedLine[]) => void;
+  setPendingWin: (v: boolean) => void;
+  setWinner: (winner: Winner | null) => void;
+  setGameEndReason: (reason: string | null) => void;
+  setWinnerBoard: (board: number[] | null) => void;
+  setCountdownValue: (v: number | null) => void;
+  setCurrentTurn: (id: string | null) => void;
+  setTurnDeadlineMs: (ms: number | null) => void;
+  setPlayerLines: (lines: Record<string, PlayerLineInfo>) => void;
+  setLastCalledBy: (caller: { id: string; name: string } | null) => void;
+  setVolumes: (patch: Partial<VolumeState>) => void;
+  resetGameData: () => void;
+  resetForNewGame: () => void;
+}
+
+const useGameStore = create<GameState>()((set) => ({
+  // Connection
   playerId: localStorage.getItem('bingo_pid') || null,
   connectionState: 'disconnected',
 
-  // ── Screen ──────────────────────────────────────────────────────────────────
+  // Screen
   screen: 'LOBBY',
 
-  // ── Identity ─────────────────────────────────────────────────────────────────
+  // Identity
   playerName: localStorage.getItem('bingo_name') || '',
 
-  // ── Room ────────────────────────────────────────────────────────────────────
+  // Room
   room: null,
 
-  // ── Setup ───────────────────────────────────────────────────────────────────
+  // Setup
   setupMode: null,
   boardArrangement: null,
   setupDeadlineMs: null,
   isSetupComplete: false,
 
-  // ── Game ────────────────────────────────────────────────────────────────────
+  // Game
   calledNumbers: [],
   lastCalledNumber: null,
-  lastCalledBy: null,       // { id, name } — who called the last number
+  lastCalledBy: null,
   markedNumbers: new Set(),
-  autoMark: true,           // enabled by default
-  completedLines: [],       // current player's completed lines (for tile highlighting)
+  autoMark: true,
+  completedLines: [],
   pendingWin: false,
 
-  // ── Turn-based ──────────────────────────────────────────────────────────────
-  currentTurn: null,        // playerId whose turn it is to call a number
-  turnDeadlineMs: null,     // Unix timestamp when current turn expires
-  playerLines: {},          // { [playerId]: { lineCount, lines: [{type, index}] } }
+  // Turn-based
+  currentTurn: null,
+  turnDeadlineMs: null,
+  playerLines: {},
 
-  // ── Victory ─────────────────────────────────────────────────────────────────
+  // Victory
   winner: null,
   gameEndReason: null,
   winnerBoard: null,
 
-  // ── Audio ───────────────────────────────────────────────────────────────────
+  // Audio
   masterVolume: 0.8,
   musicVolume: 0.5,
   sfxVolume: 0.9,
 
-  // ── Countdown overlay ───────────────────────────────────────────────────────
+  // Countdown
   countdownValue: null,
 
-  // ── Actions ─────────────────────────────────────────────────────────────────
+  // Actions
   setScreen: (screen) => set({ screen }),
 
   setPlayerName: (playerName) => {
@@ -56,7 +135,8 @@ const useGameStore = create((set, get) => ({
   },
 
   setPlayerId: (playerId) => {
-    localStorage.setItem('bingo_pid', playerId);
+    if (playerId !== null) localStorage.setItem('bingo_pid', playerId);
+    else localStorage.removeItem('bingo_pid');
     set({ playerId });
   },
 
@@ -117,7 +197,6 @@ const useGameStore = create((set, get) => ({
 
   setVolumes: (patch) => set(patch),
 
-  // Reset mid-game data when a new game starts (keeps boardArrangement)
   resetGameData: () =>
     set({
       calledNumbers: [],

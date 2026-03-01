@@ -3,13 +3,35 @@ import { motion, AnimatePresence } from 'framer-motion';
 import useGameStore from '../store/gameStore';
 import { audioEngine } from '../audio/audioEngine';
 
+interface SliderProps {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}
+
+function Slider({ label, value, onChange }: SliderProps) {
+  return (
+    <label className="vol-row">
+      <span className="vol-label">{label}</span>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.02}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        className="vol-slider"
+      />
+    </label>
+  );
+}
+
 export default function VolumeControl() {
   const [open, setOpen] = useState(false);
   const { masterVolume, musicVolume, sfxVolume, setVolumes } = useGameStore();
 
-  const update = (key, value) => {
-    const patch = { [key]: value };
-    setVolumes(patch);
+  const update = (key: 'masterVolume' | 'musicVolume' | 'sfxVolume', value: number) => {
+    setVolumes({ [key]: value });
     if (key === 'masterVolume') audioEngine.setMasterVolume(value);
     if (key === 'musicVolume')  audioEngine.setMusicVolume(value);
     if (key === 'sfxVolume')    audioEngine.setSFXVolume(value);
@@ -41,22 +63,5 @@ export default function VolumeControl() {
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-function Slider({ label, value, onChange }) {
-  return (
-    <label className="vol-row">
-      <span className="vol-label">{label}</span>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.02}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="vol-slider"
-      />
-    </label>
   );
 }

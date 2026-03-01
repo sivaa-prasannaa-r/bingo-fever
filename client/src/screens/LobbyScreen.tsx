@@ -3,18 +3,18 @@ import { motion } from 'framer-motion';
 import GlassPanel from '../components/ui/GlassPanel';
 import Button from '../components/ui/Button';
 import useGameStore from '../store/gameStore';
+import type { SendFn } from '../types';
 
 const TURN_TIME_OPTIONS = [5, 10, 15, 20, 25];
 
-export default function LobbyScreen({ send }) {
+export default function LobbyScreen({ send }: { send: SendFn }) {
   const { playerName, setPlayerName } = useGameStore();
-  const [tab, setTab]         = useState('home');   // 'home' | 'create' | 'join'
-  const [boardSize, setSize]  = useState(5);
+  const [tab, setTab]           = useState<'home' | 'create' | 'join'>('home');
+  const [boardSize, setSize]    = useState(5);
   const [turnSecs, setTurnSecs] = useState(15);
-  const [roomCode, setCode]   = useState('');
-  const [error, setError]     = useState('');
+  const [roomCode, setCode]     = useState('');
+  const [error, setError]       = useState('');
 
-  // Auto-fill room code from invite link (?join=ROOMCODE)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const joinCode = params.get('join');
@@ -40,7 +40,6 @@ export default function LobbyScreen({ send }) {
 
   return (
     <div className="screen lobby-screen">
-      {/* ── Title ── */}
       <motion.div
         className="lobby-title"
         initial={{ opacity: 0, y: -40, scale: 0.8 }}
@@ -51,7 +50,6 @@ export default function LobbyScreen({ send }) {
         <p className="game-tagline">🎉 Play Together • Win Together 🎉</p>
       </motion.div>
 
-      {/* ── Name input ── */}
       <GlassPanel className="lobby-panel">
         <label className="input-label">Your Name</label>
         <input
@@ -87,7 +85,6 @@ export default function LobbyScreen({ send }) {
             />
             <p className="size-hint">{boardSize * boardSize} numbers · {boardSize}×{boardSize} grid</p>
 
-            {/* Turn time setting */}
             <label className="input-label" style={{ marginTop: 14 }}>
               ⏱ Turn Wait Time
             </label>

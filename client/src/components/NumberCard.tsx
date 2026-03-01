@@ -1,16 +1,20 @@
 import { motion } from 'framer-motion';
 
-/**
- * A draggable number card used in Manual Placement Mode.
- * The parent handles pointer events and passes transform via style.
- */
+interface NumberCardProps {
+  number: number;
+  isDragging?: boolean;
+  isPlaced?: boolean;
+  style?: React.CSSProperties;
+  onPointerDown?: React.PointerEventHandler<HTMLDivElement>;
+}
+
 export default function NumberCard({
   number,
   isDragging = false,
   isPlaced = false,
   style = {},
   onPointerDown,
-}) {
+}: NumberCardProps) {
   if (isPlaced) return null;
 
   return (

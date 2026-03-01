@@ -3,17 +3,18 @@ import { motion, AnimatePresence } from 'framer-motion';
 import GlassPanel from '../components/ui/GlassPanel';
 import Button from '../components/ui/Button';
 import useGameStore from '../store/gameStore';
+import type { SendFn, Difficulty } from '../types';
 
-const DIFFICULTIES = [
+const DIFFICULTIES: { key: Difficulty; label: string; icon: string; desc: string }[] = [
   { key: 'easy',   label: 'Easy',   icon: '😊', desc: 'Picks random numbers' },
   { key: 'medium', label: 'Medium', icon: '🎯', desc: 'Alternates smart & random' },
   { key: 'hard',   label: 'Hard',   icon: '🔥', desc: 'Always plays to win' },
 ];
 
-export default function RoomScreen({ send }) {
+export default function RoomScreen({ send }: { send: SendFn }) {
   const { room, playerId, resetForNewGame } = useGameStore();
-  const [boardSize, setSize] = useState(room?.boardSize ?? 5);
-  const [copied, setCopied] = useState(false);
+  const [boardSize, setSize]       = useState(room?.boardSize ?? 5);
+  const [copied, setCopied]        = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [showDiffMenu, setShowDiffMenu] = useState(false);
 
@@ -21,7 +22,7 @@ export default function RoomScreen({ send }) {
 
   const isHost = room.host === playerId;
   const bot = room.players.find((p) => p.isBot);
-  const currentDiff = bot?.difficulty ?? 'hard';
+  const currentDiff: Difficulty = (bot?.difficulty as Difficulty | undefined) ?? 'hard';
 
   const copyCode = () => {
     navigator.clipboard.writeText(room.id).then(() => {
@@ -40,12 +41,12 @@ export default function RoomScreen({ send }) {
 
   const handleStart = () => send('START_SETUP', { boardSize });
 
-  const handleSizeChange = (v) => {
+  const handleSizeChange = (v: number) => {
     setSize(v);
     send('UPDATE_BOARD_SIZE', { boardSize: v });
   };
 
-  const handleDifficulty = (d) => {
+  const handleDifficulty = (d: Difficulty) => {
     send('SET_BOT_DIFFICULTY', { difficulty: d });
     setShowDiffMenu(false);
   };
@@ -53,7 +54,6 @@ export default function RoomScreen({ send }) {
   return (
     <div className="screen room-screen">
       <GlassPanel className="room-panel">
-        {/* Room code */}
         <div className="room-code-block">
           <p className="room-code-label">Room Code</p>
           <motion.div className="room-code" onClick={copyCode} whileTap={{ scale: 0.95 }}>
@@ -70,7 +70,6 @@ export default function RoomScreen({ send }) {
           </motion.button>
         </div>
 
-        {/* Board size (host only) */}
         {isHost && (
           <div className="size-selector">
             <label className="input-label">Board Size ({boardSize}×{boardSize})</label>
@@ -87,7 +86,6 @@ export default function RoomScreen({ send }) {
           </p>
         )}
 
-        {/* Player list */}
         <div className="player-list">
           <p className="input-label">Players ({room.players.length}/4)</p>
           {room.players.map((p) => (
@@ -101,7 +99,6 @@ export default function RoomScreen({ send }) {
                 <span className="player-avatar">{p.isBot ? '🤖' : p.name[0]?.toUpperCase()}</span>
                 <span className="player-name">{p.name}{p.id === playerId ? ' (you)' : ''}</span>
 
-                {/* Difficulty badge (always visible for bot) */}
                 {p.isBot && (
                   <span className={`diff-badge diff-badge--${currentDiff}`}>
                     {DIFFICULTIES.find((d) => d.key === currentDiff)?.icon} {DIFFICULTIES.find((d) => d.key === currentDiff)?.label}
@@ -111,7 +108,6 @@ export default function RoomScreen({ send }) {
                 {room.host === p.id && <span className="host-badge">👑 Host</span>}
                 {!p.connected && <span className="dc-badge">💤</span>}
 
-                {/* Gear icon — host only, bot row only */}
                 {p.isBot && isHost && (
                   <motion.button
                     className="diff-gear-btn"
@@ -126,7 +122,6 @@ export default function RoomScreen({ send }) {
                 )}
               </motion.div>
 
-              {/* Difficulty picker — expands below bot row */}
               {p.isBot && isHost && (
                 <AnimatePresence>
                   {showDiffMenu && (
@@ -156,7 +151,6 @@ export default function RoomScreen({ send }) {
           ))}
         </div>
 
-        {/* Actions */}
         {isHost ? (
           <>
             {!bot && room.players.length < 4 && (

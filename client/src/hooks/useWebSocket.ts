@@ -2,14 +2,15 @@ import { useEffect, useRef, useCallback } from 'react';
 import useGameStore from '../store/gameStore';
 import { audioEngine } from '../audio/audioEngine';
 import { nearWinCount } from '../utils/boardUtils';
+import type { SendFn, CompletedLine, PlayerLineInfo, SerializedRoom } from '../types';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
-export function useWebSocket() {
-  const ws = useRef(null);
-  const reconnTimer = useRef(null);
+export function useWebSocket(): { send: SendFn } {
+  const ws = useRef<WebSocket | null>(null);
+  const reconnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const send = useCallback((type, payload = {}) => {
+  const send: SendFn = useCallback((type, payload = {}) => {
     const socket = ws.current;
     if (socket?.readyState === WebSocket.OPEN)
       socket.send(JSON.stringify({ type, payload }));
@@ -31,9 +32,9 @@ export function useWebSocket() {
       }
     };
 
-    socket.onmessage = (e) => {
+    socket.onmessage = (e: MessageEvent) => {
       try {
-        const { type, payload } = JSON.parse(e.data);
+        const { type, payload } = JSON.parse(e.data as string) as { type: string; payload: Record<string, unknown> };
         handleServerMessage(type, payload, send);
       } catch { /* ignore parse errors */ }
     };
@@ -49,7 +50,7 @@ export function useWebSocket() {
   useEffect(() => {
     connect();
     return () => {
-      clearTimeout(reconnTimer.current);
+      if (reconnTimer.current) clearTimeout(reconnTimer.current);
       ws.current?.close();
     };
   }, [connect]);
@@ -59,28 +60,29 @@ export function useWebSocket() {
 
 // ─── Server → client message handler ─────────────────────────────────────────
 
-function handleServerMessage(type, payload, send) {
+function handleServerMessage(type: string, payload: Record<string, unknown>, send: SendFn): void {
   const s = useGameStore.getState();
 
   switch (type) {
     case 'CONNECTED':
-      s.setPlayerId(payload.playerId);
+      s.setPlayerId(payload.playerId as string);
       break;
 
     case 'RECONNECTED':
-      s.setPlayerId(payload.playerId);
-      s.setRoom(payload.room);
-      s.setCalledNumbers(payload.calledNumbers ?? []);
-      s.setCurrentTurn(payload.currentTurn ?? null);
+      s.setPlayerId(payload.playerId as string);
+      s.setRoom(payload.room as Parameters<typeof s.setRoom>[0]);
+      s.setCalledNumbers((payload.calledNumbers as number[]) ?? []);
+      s.setCurrentTurn((payload.currentTurn as string | null) ?? null);
       if (payload.board) {
-        s.setBoardArrangement(payload.board);
+        s.setBoardArrangement(payload.board as number[]);
         s.setIsSetupComplete(true);
       }
       {
-        const state = payload.room?.state;
+        const room = payload.room as { state?: string; setupDeadlineMs?: number } | undefined;
+        const state = room?.state;
         if (state === 'GAME' || state === 'COUNTDOWN') s.setScreen('GAME');
         else if (state === 'SETUP') {
-          s.setSetupDeadlineMs(payload.room.setupDeadlineMs);
+          s.setSetupDeadlineMs(room?.setupDeadlineMs ?? null);
           s.setScreen('SETUP');
         } else s.setScreen('ROOM');
       }
@@ -91,22 +93,22 @@ function handleServerMessage(type, payload, send) {
       break;
 
     case 'ROOM_CREATED':
-      s.setRoom(payload.room);
+      s.setRoom(payload.room as Parameters<typeof s.setRoom>[0]);
       s.setScreen('ROOM');
       break;
 
     case 'ROOM_JOINED':
-      s.setRoom(payload.room);
+      s.setRoom(payload.room as Parameters<typeof s.setRoom>[0]);
       s.setScreen('ROOM');
       break;
 
     case 'ROOM_UPDATED':
-      s.setRoom(payload);
+      s.setRoom(payload as unknown as SerializedRoom);
       break;
 
     case 'SETUP_STARTED':
-      s.setRoom(payload.room);
-      s.setSetupDeadlineMs(payload.deadlineMs);
+      s.setRoom(payload.room as Parameters<typeof s.setRoom>[0]);
+      s.setSetupDeadlineMs(payload.deadlineMs as number);
       s.setBoardArrangement(null);
       s.setIsSetupComplete(false);
       s.setSetupMode(null);
@@ -114,15 +116,14 @@ function handleServerMessage(type, payload, send) {
       break;
 
     case 'BOARD_AUTO_FILLED':
-      s.setBoardArrangement(payload.arrangement);
+      s.setBoardArrangement(payload.arrangement as number[]);
       s.setIsSetupComplete(true);
       break;
 
     case 'GAME_COUNTDOWN':
-      s.setCountdownValue(payload.count);
+      s.setCountdownValue(payload.count as number);
       if (payload.count === 0) {
         audioEngine.playCountdownFinal();
-        // Switch to GAME after the "GO!" display clears
         setTimeout(() => {
           s.setScreen('GAME');
           s.setCountdownValue(null);
@@ -134,50 +135,42 @@ function handleServerMessage(type, payload, send) {
 
     case 'GAME_STARTED':
       s.setScreen('GAME');
-      s.setRoom(payload.room);
+      s.setRoom(payload.room as Parameters<typeof s.setRoom>[0]);
       s.resetGameData();
-      s.setCurrentTurn(payload.currentTurn ?? null);
-      s.setTurnDeadlineMs(payload.turnDeadlineMs ?? null);
+      s.setCurrentTurn((payload.currentTurn as string | null) ?? null);
+      s.setTurnDeadlineMs((payload.turnDeadlineMs as number | null) ?? null);
       break;
 
     case 'NUMBER_CALLED': {
       audioEngine.duckMusic(2200);
-      audioEngine.playNumberReveal(payload.number);
-      s.addCalledNumber(payload.number);
-      s.setCurrentTurn(payload.nextTurn ?? null);
-      s.setTurnDeadlineMs(payload.turnDeadlineMs ?? null);
-      s.setLastCalledBy(payload.calledBy ?? null);
+      audioEngine.playNumberReveal(payload.number as number);
+      s.addCalledNumber(payload.number as number);
+      s.setCurrentTurn((payload.nextTurn as string | null) ?? null);
+      s.setTurnDeadlineMs((payload.turnDeadlineMs as number | null) ?? null);
+      s.setLastCalledBy((payload.calledBy as { id: string; name: string } | null) ?? null);
 
-      // Update all players' line progress from server data
       if (payload.playerLines) {
-        const plMap = {};
-        for (const pl of payload.playerLines) {
+        const plArray = payload.playerLines as Array<{ playerId: string; lineCount: number; lines: CompletedLine[] }>;
+        const plMap: Record<string, PlayerLineInfo> = {};
+        for (const pl of plArray) {
           plMap[pl.playerId] = { lineCount: pl.lineCount, lines: pl.lines ?? [] };
         }
         s.setPlayerLines(plMap);
 
-        // Update own completed lines for tile highlighting
-        const myPl = plMap[s.playerId];
+        const myPl = plMap[s.playerId ?? ''];
         if (myPl) {
-          const myLines = myPl.lines.map((l) => ({ ...l, playerId: s.playerId }));
+          const myLines: CompletedLine[] = myPl.lines.map((l) => ({ ...l, playerId: s.playerId ?? undefined }));
           const prevCount = s.completedLines.length;
           s.setCompletedLines(myLines);
-          // Play sound if a new line was completed
-          if (myLines.length > prevCount) {
-            audioEngine.playLineComplete();
-          }
-          // Enable BINGO button when 5 lines reached
-          if (myPl.lineCount >= 5 && !s.pendingWin) {
-            s.setPendingWin(true);
-          }
+          if (myLines.length > prevCount) audioEngine.playLineComplete();
+          if (myPl.lineCount >= 5 && !s.pendingWin) s.setPendingWin(true);
         }
       }
 
-      // Near-win audio anticipation
       const { boardArrangement, room, markedNumbers, autoMark } = useGameStore.getState();
       if (boardArrangement && room) {
         const newMarked = autoMark
-          ? new Set([...markedNumbers, payload.number])
+          ? new Set([...markedNumbers, payload.number as number])
           : markedNumbers;
         const nc = nearWinCount(boardArrangement, newMarked, room.boardSize);
         if (nc > 0) audioEngine.playNearWin();
@@ -186,8 +179,8 @@ function handleServerMessage(type, payload, send) {
     }
 
     case 'TURN_CHANGED':
-      s.setCurrentTurn(payload.nextTurn ?? null);
-      s.setTurnDeadlineMs(payload.turnDeadlineMs ?? null);
+      s.setCurrentTurn((payload.nextTurn as string | null) ?? null);
+      s.setTurnDeadlineMs((payload.turnDeadlineMs as number | null) ?? null);
       break;
 
     case 'TILE_MARKED':
@@ -196,20 +189,23 @@ function handleServerMessage(type, payload, send) {
 
     case 'LINE_COMPLETED':
       audioEngine.playLineComplete();
-      s.addCompletedLine({ playerId: payload.playerId, type: payload.type, index: payload.index });
+      s.addCompletedLine({
+        playerId: payload.playerId as string,
+        type: payload.type as CompletedLine['type'],
+        index: payload.index as number,
+      });
       break;
 
     case 'GAME_ENDED':
       if (payload.winner) audioEngine.playVictory();
-      s.setWinner(payload.winner);
-      s.setGameEndReason(payload.reason);
-      s.setWinnerBoard(payload.winnerBoard ?? null);
+      s.setWinner((payload.winner as Parameters<typeof s.setWinner>[0]) ?? null);
+      s.setGameEndReason((payload.reason as string) ?? null);
+      s.setWinnerBoard((payload.winnerBoard as number[] | null) ?? null);
       s.setScreen('VICTORY');
       break;
 
     case 'GAME_RESET':
-      // Host triggered Play Again — go back to room lobby
-      s.setRoom(payload.room);
+      s.setRoom(payload.room as Parameters<typeof s.setRoom>[0]);
       s.setScreen('ROOM');
       s.setCalledNumbers([]);
       s.setCompletedLines([]);

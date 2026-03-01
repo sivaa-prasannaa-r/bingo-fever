@@ -1,6 +1,17 @@
 import { motion } from 'framer-motion';
 import { audioEngine } from '../../audio/audioEngine';
 
+interface ButtonProps {
+  variant?: 'primary' | 'secondary' | 'ghost';
+  size?: 'sm' | 'md' | 'lg';
+  children?: React.ReactNode;
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  disabled?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  type?: 'button' | 'reset' | 'submit';
+}
+
 export default function Button({
   children,
   onClick,
@@ -9,9 +20,9 @@ export default function Button({
   disabled = false,
   className = '',
   style = {},
-  ...props
-}) {
-  const handleClick = (e) => {
+  type = 'button',
+}: ButtonProps) {
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     if (disabled) return;
     audioEngine.playClick();
     onClick?.(e);
@@ -19,6 +30,7 @@ export default function Button({
 
   return (
     <motion.button
+      type={type}
       className={`btn btn--${variant} btn--${size} ${className}`}
       onClick={handleClick}
       disabled={disabled}
@@ -26,7 +38,6 @@ export default function Button({
       whileHover={disabled ? {} : { scale: 1.04, y: -2 }}
       transition={{ type: 'spring', stiffness: 400, damping: 20 }}
       style={style}
-      {...props}
     >
       {children}
     </motion.button>

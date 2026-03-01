@@ -1,23 +1,28 @@
-import { createPRNG, shuffleArray } from '../utils/prng.js';
+import { createPRNG } from '../utils/prng.js';
+import type { Line, WinResult } from '../types.js';
 
 export class GameEngine {
-  constructor(boardSize, seed) {
+  boardSize: number;
+  seed: number;
+  private prng: () => number;
+  numberPool: number[];
+  calledNumbers: number[];
+
+  constructor(boardSize: number, seed?: number) {
     this.boardSize = boardSize;
     this.seed = seed ?? Date.now();
     this.prng = createPRNG(this.seed);
-    this.numberPool = [];   // uncalled numbers (any order — player picks)
+    this.numberPool = [];
     this.calledNumbers = [];
   }
 
-  generateSequence() {
+  generateSequence(): number[] {
     const max = this.boardSize * this.boardSize;
-    // Full pool — players choose which number to call each turn
     this.numberPool = Array.from({ length: max }, (_, i) => i + 1);
     return [...this.numberPool];
   }
 
-  // Player-driven: call a specific number on their turn
-  callNumber(number) {
+  callNumber(number: number): number[] {
     const idx = this.numberPool.indexOf(number);
     if (idx === -1) throw new Error('Number already called or invalid');
     this.numberPool.splice(idx, 1);
@@ -25,16 +30,15 @@ export class GameEngine {
     return [...this.calledNumbers];
   }
 
-  isExhausted() {
+  isExhausted(): boolean {
     return this.numberPool.length === 0;
   }
 
-  // Returns all completed lines for a board given current calledNumbers
-  countCompletedLines(board) {
+  countCompletedLines(board: number[] | null): Line[] {
     if (!board) return [];
     const n = this.boardSize;
     const called = new Set(this.calledNumbers);
-    const lines = [];
+    const lines: Line[] = [];
 
     for (let r = 0; r < n; r++) {
       const row = board.slice(r * n, (r + 1) * n);
@@ -52,45 +56,42 @@ export class GameEngine {
     return lines;
   }
 
-  // Win requires >= 5 completed lines (B-I-N-G-O)
-  validateWin(board) {
+  validateWin(board: number[]): WinResult {
     const lines = this.countCompletedLines(board);
     if (lines.length >= 5) return { valid: true, lines };
     return { valid: false };
   }
 
-  // Smart bot: pick the uncalled number on `board` that scores highest.
-  // Score(num) = Σ over lines containing num: 2^(already_called_in_that_line)
-  // Exponential weighting strongly prefers finishing near-complete lines.
-  getBotMove(board) {
+  getBotMove(board: number[]): number | null {
     const n = this.boardSize;
     const calledSet = new Set(this.calledNumbers);
     const uncalled = board.filter((num) => !calledSet.has(num));
     if (uncalled.length === 0) return null;
 
-    const lines = [];
+    const lines: number[][] = [];
     for (let r = 0; r < n; r++) lines.push(board.slice(r * n, (r + 1) * n));
     for (let c = 0; c < n; c++) lines.push(Array.from({ length: n }, (_, r) => board[r * n + c]));
     lines.push(Array.from({ length: n }, (_, i) => board[i * n + i]));
     lines.push(Array.from({ length: n }, (_, i) => board[i * n + (n - 1 - i)]));
 
-    const scores = new Map(uncalled.map((num) => [num, 0]));
+    const scores = new Map<number, number>(uncalled.map((num) => [num, 0]));
     for (const line of lines) {
       const calledCount = line.filter((x) => calledSet.has(x)).length;
-      const weight = 1 << calledCount; // 1, 2, 4, 8, 16 — near-done lines dominate
+      const weight = 1 << calledCount;
       for (const num of line) {
-        if (scores.has(num)) scores.set(num, scores.get(num) + weight);
+        if (scores.has(num)) scores.set(num, scores.get(num)! + weight);
       }
     }
 
-    let best = uncalled[0], bestScore = -1;
+    let best = uncalled[0];
+    let bestScore = -1;
     for (const [num, score] of scores) {
       if (score > bestScore) { bestScore = score; best = num; }
     }
     return best;
   }
 
-  stop() {
-    // No auto-timer in turn-based mode — nothing to stop
+  stop(): void {
+    // No auto-timer in turn-based mode
   }
 }

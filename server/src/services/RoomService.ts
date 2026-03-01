@@ -1,22 +1,47 @@
 import { randomUUID } from 'crypto';
 import { GameEngine } from './GameEngine.js';
 import { createPRNG, shuffleArray } from '../utils/prng.js';
+import type { Difficulty, RoomState, SerializedRoom, WinResult } from '../types.js';
 
-// Random 6-char alphanumeric code (no confusable chars)
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-function genRoomId() {
+function genRoomId(): string {
   return Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 }
 
-export class RoomService {
-  constructor() {
-    this.rooms = new Map();       // roomId -> room
-    this.playerRoom = new Map();  // playerId -> roomId
-  }
+export interface Player {
+  id: string;
+  name: string;
+  isBot: boolean;
+  connected: boolean;
+  board: number[] | null;
+  ready: boolean;
+  difficulty?: Difficulty;
+  botTurnCount?: number;
+}
 
-  createRoom(player, boardSize = 5, turnWaitSecs = 15) {
+export interface Room {
+  id: string;
+  boardSize: number;
+  turnWaitSecs: number;
+  state: RoomState;
+  host: string;
+  players: Player[];
+  engine: GameEngine | null;
+  setupDeadlineMs: number | null;
+  setupTimer: ReturnType<typeof setTimeout> | null;
+  gameSeed: number | null;
+  currentTurn: string | null;
+  turnTimer: ReturnType<typeof setTimeout> | null;
+  turnDeadlineMs: number | null;
+}
+
+export class RoomService {
+  private rooms = new Map<string, Room>();
+  private playerRoom = new Map<string, string>();
+
+  createRoom(player: Player, boardSize = 5, turnWaitSecs = 15): Room {
     const id = genRoomId();
-    const room = {
+    const room: Room = {
       id,
       boardSize: clamp(boardSize, 5, 10),
       turnWaitSecs: clampTurnSecs(turnWaitSecs),
@@ -28,13 +53,15 @@ export class RoomService {
       setupTimer: null,
       gameSeed: null,
       currentTurn: null,
+      turnTimer: null,
+      turnDeadlineMs: null,
     };
     this.rooms.set(id, room);
     this.playerRoom.set(player.id, id);
     return room;
   }
 
-  joinRoom(roomId, player) {
+  joinRoom(roomId: string, player: Player): Room {
     const room = this.rooms.get(roomId);
     if (!room) throw new Error('Room not found');
     if (room.state !== 'LOBBY') throw new Error('Game already in progress');
@@ -45,7 +72,7 @@ export class RoomService {
     return room;
   }
 
-  startSetup(roomId, boardSize, onAutoFill) {
+  startSetup(roomId: string, boardSize: number, onAutoFill: (room: Room) => void): Room {
     const room = this.rooms.get(roomId);
     if (!room) throw new Error('Room not found');
     room.boardSize = clamp(boardSize, 5, 10);
@@ -53,7 +80,6 @@ export class RoomService {
     room.setupDeadlineMs = Date.now() + 60_000;
     room.players.forEach((p) => {
       if (p.isBot) {
-        // Bot always has a board ready immediately
         p.board = autoBoard(room.boardSize);
         p.ready = true;
       } else {
@@ -76,8 +102,9 @@ export class RoomService {
     return room;
   }
 
-  submitBoard(playerId, arrangement) {
+  submitBoard(playerId: string, arrangement: number[]): Room {
     const room = this._roomOf(playerId);
+    if (!room) throw new Error('Not in a room');
     const player = room.players.find((p) => p.id === playerId);
     if (!player) throw new Error('Player not in room');
     const expected = room.boardSize ** 2;
@@ -88,13 +115,13 @@ export class RoomService {
     return room;
   }
 
-  addBot(roomId) {
+  addBot(roomId: string): Room {
     const room = this.rooms.get(roomId);
     if (!room) throw new Error('Room not found');
     if (room.state !== 'LOBBY') throw new Error('Cannot add bot after game has started');
     if (room.players.length >= 4) throw new Error('Room is full (max 4 players)');
     if (room.players.some((p) => p.isBot)) throw new Error('A bot is already in the room');
-    const bot = {
+    const bot: Player = {
       id: `bot-${randomUUID()}`,
       name: 'Computer',
       isBot: true,
@@ -109,11 +136,11 @@ export class RoomService {
     return room;
   }
 
-  allReady(room) {
+  allReady(room: Room): boolean {
     return room.players.length > 0 && room.players.every((p) => p.ready);
   }
 
-  startGame(room) {
+  startGame(room: Room): Room {
     if (room.setupTimer) {
       clearTimeout(room.setupTimer);
       room.setupTimer = null;
@@ -122,26 +149,26 @@ export class RoomService {
     room.gameSeed = Date.now();
     room.engine = new GameEngine(room.boardSize, room.gameSeed);
     room.engine.generateSequence();
-    // First turn goes to host
     room.currentTurn = room.host;
     return room;
   }
 
-  claimWin(playerId) {
+  claimWin(playerId: string): { room: Room; player: Player; result: WinResult } {
     const room = this._roomOf(playerId);
+    if (!room) throw new Error('Not in a room');
     if (room.state !== 'GAME') throw new Error('No active game');
     const player = room.players.find((p) => p.id === playerId);
     if (!player?.board) throw new Error('No board for player');
+    if (!room.engine) throw new Error('No game engine');
     return { room, player, result: room.engine.validateWin(player.board) };
   }
 
-  endGame(room) {
+  endGame(room: Room): void {
     room.engine?.stop();
     room.state = 'ENDED';
   }
 
-  // Reset room to LOBBY for a new round (keep same players)
-  playAgain(roomId) {
+  playAgain(roomId: string): Room {
     const room = this.rooms.get(roomId);
     if (!room) throw new Error('Room not found');
     room.state = 'LOBBY';
@@ -160,19 +187,18 @@ export class RoomService {
     return room;
   }
 
-  removePlayer(playerId) {
+  removePlayer(playerId: string): Room | null {
     const room = this._roomOf(playerId);
     if (!room) return null;
     room.players = room.players.filter((p) => p.id !== playerId);
     this.playerRoom.delete(playerId);
     if (room.players.length === 0) {
       room.engine?.stop();
-      clearTimeout(room.setupTimer);
+      if (room.setupTimer) clearTimeout(room.setupTimer);
       this.rooms.delete(room.id);
       return null;
     }
     if (room.host === playerId) room.host = room.players[0].id;
-    // If it was this player's turn, advance turn
     if (room.currentTurn === playerId && room.state === 'GAME') {
       const connected = room.players.filter((p) => p.connected);
       room.currentTurn = connected.length > 0 ? connected[0].id : null;
@@ -180,15 +206,15 @@ export class RoomService {
     return room;
   }
 
-  getRoom(id) {
+  getRoom(id: string): Room | null {
     return this.rooms.get(id) ?? null;
   }
 
-  getRoomOf(playerId) {
+  getRoomOf(playerId: string): Room | null {
     return this._roomOf(playerId);
   }
 
-  reconnect(oldPlayerId, ws, newWs) {
+  reconnect(oldPlayerId: string): { room: Room; player: Player } | null {
     const room = this._roomOf(oldPlayerId);
     if (!room) return null;
     const player = room.players.find((p) => p.id === oldPlayerId);
@@ -197,7 +223,7 @@ export class RoomService {
     return { room, player };
   }
 
-  serialize(room) {
+  serialize(room: Room): SerializedRoom {
     return {
       id: room.id,
       boardSize: room.boardSize,
@@ -217,24 +243,24 @@ export class RoomService {
     };
   }
 
-  _roomOf(playerId) {
+  _roomOf(playerId: string): Room | null {
     const id = this.playerRoom.get(playerId);
-    return id ? this.rooms.get(id) : null;
+    return id ? (this.rooms.get(id) ?? null) : null;
   }
 }
 
-function clamp(v, min, max) {
+function clamp(v: unknown, min: number, max: number): number {
   return Math.max(min, Math.min(max, Number(v) || min));
 }
 
-function clampTurnSecs(v) {
+function clampTurnSecs(v: unknown): number {
   const valid = [5, 10, 15, 20, 25];
   const n = Number(v);
   return valid.includes(n) ? n : 15;
 }
 
-function autoBoard(n) {
+function autoBoard(n: number): number[] {
   const arr = Array.from({ length: n * n }, (_, i) => i + 1);
-  const prng = createPRNG(Date.now() ^ Math.random() * 0xffffffff);
+  const prng = createPRNG(Date.now() ^ (Math.random() * 0xffffffff));
   return shuffleArray(arr, prng);
 }

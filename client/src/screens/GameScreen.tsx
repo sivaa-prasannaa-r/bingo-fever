@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import BingoBoard from '../components/board/BingoBoard';
 import useGameStore from '../store/gameStore';
+import type { SendFn } from '../types';
 
 const BINGO_CHARS = ['B', 'I', 'N', 'G', 'O'];
 
-export default function GameScreen({ send }) {
+export default function GameScreen({ send }: { send: SendFn }) {
   const {
     room, playerId,
     lastCalledNumber,
@@ -16,13 +17,12 @@ export default function GameScreen({ send }) {
     turnDeadlineMs,
   } = useGameStore();
 
-  const myLineData   = playerLines[playerId];
+  const myLineData   = playerLines[playerId ?? ''];
   const myLineCount  = myLineData?.lineCount ?? 0;
   const isMyTurn     = currentTurn === playerId;
   const currentPlayer = room?.players?.find((p) => p.id === currentTurn);
   const turnWaitSecs = room?.turnWaitSecs ?? 15;
 
-  // Local countdown from server deadline
   const [timeLeft, setTimeLeft] = useState(turnWaitSecs);
   useEffect(() => {
     if (!turnDeadlineMs) { setTimeLeft(turnWaitSecs); return; }
@@ -41,7 +41,6 @@ export default function GameScreen({ send }) {
 
   return (
     <div className="screen game-screen">
-      {/* ── BINGO letters progress bar ── */}
       <div className="bingo-progress">
         {BINGO_CHARS.map((ch, i) => {
           const done = i < myLineCount;
@@ -60,7 +59,6 @@ export default function GameScreen({ send }) {
         <span className="bingo-prog-count">{myLineCount}/5</span>
       </div>
 
-      {/* ── Last called number reveal ── */}
       <div className="number-reveal-area">
         <AnimatePresence mode="wait">
           {lastCalledNumber && (
@@ -86,7 +84,6 @@ export default function GameScreen({ send }) {
         </AnimatePresence>
       </div>
 
-      {/* ── Turn banner with countdown ── */}
       <div className={`turn-banner${isMyTurn ? ' turn-banner--mine' : ''}`}>
         <div className="turn-banner-text">
           {isMyTurn
@@ -107,12 +104,10 @@ export default function GameScreen({ send }) {
         </div>
       </div>
 
-      {/* ── Board ── */}
       <div className="board-wrap">
         <BingoBoard send={send} />
       </div>
 
-      {/* ── BINGO button — fixed above player strip ── */}
       <AnimatePresence>
         {pendingWin && myLineCount >= 5 && (
           <motion.div
@@ -137,7 +132,6 @@ export default function GameScreen({ send }) {
         )}
       </AnimatePresence>
 
-      {/* ── Players strip — fixed at bottom ── */}
       <div className="players-strip">
         {room?.players.map((p) => {
           const pLineCount = playerLines[p.id]?.lineCount ?? 0;

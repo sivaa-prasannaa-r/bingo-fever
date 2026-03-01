@@ -1,12 +1,9 @@
 import { motion } from 'framer-motion';
 import useGameStore from '../store/gameStore';
 import { audioEngine } from '../audio/audioEngine';
+import type { SendFn } from '../types';
 
-/**
- * Turn-based number selection grid.
- * When it's your turn, pick any uncalled number to call it for all players.
- */
-export default function NumberPool({ send }) {
+export default function NumberPool({ send }: { send: SendFn }) {
   const { room, playerId, currentTurn, calledNumbers } = useGameStore();
   const n = room?.boardSize ?? 5;
   const total = n * n;
@@ -15,7 +12,7 @@ export default function NumberPool({ send }) {
   const isMyTurn = currentTurn === playerId;
   const currentPlayer = room?.players?.find((p) => p.id === currentTurn);
 
-  const handlePick = (number) => {
+  const handlePick = (number: number) => {
     if (!isMyTurn || calledSet.has(number)) return;
     audioEngine.playClick();
     send('CALL_NUMBER', { number });
@@ -35,7 +32,7 @@ export default function NumberPool({ send }) {
 
       <div
         className="number-pool"
-        style={{ '--pool-cols': Math.min(total, n * 2 <= 15 ? n * 2 : 15) }}
+        style={{ '--pool-cols': Math.min(total, n * 2 <= 15 ? n * 2 : 15) } as React.CSSProperties}
       >
         {allNumbers.map((num) => {
           const isCalled = calledSet.has(num);
