@@ -1,12 +1,67 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import GlassPanel from '../components/ui/GlassPanel';
 import Button from '../components/ui/Button';
 import useGameStore from '../store/gameStore';
+import { audioEngine } from '../audio/audioEngine';
 
 const LETTER_DELAY = 0.08;
 const BINGO_LETTERS = ['B', 'I', 'N', 'G', 'O'];
 const REPLAY_INTERVAL = 750;
+
+const LINE_GRADIENT_H = 'linear-gradient(90deg, transparent 0%, #ffe66d 25%, #ff6b9d 50%, #ffe66d 75%, transparent 100%)';
+const LINE_GRADIENT_V = 'linear-gradient(180deg, transparent 0%, #ffe66d 25%, #ff6b9d 50%, #ffe66d 75%, transparent 100%)';
+const LINE_GLOW = '0 0 10px rgba(255,230,109,0.9)';
+
+function LineMarker({ line, n }) {
+  if (line.type === 'row') {
+    const topPct = (line.index / n + 1 / (2 * n)) * 100;
+    return (
+      <motion.div
+        style={{
+          position: 'absolute', top: `${topPct}%`, left: '1%', right: '1%',
+          height: 3, background: LINE_GRADIENT_H, boxShadow: LINE_GLOW,
+          borderRadius: 4, transformOrigin: 'left center', zIndex: 5, pointerEvents: 'none',
+        }}
+        initial={{ scaleX: 0 }}
+        animate={{ scaleX: 1 }}
+        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+      />
+    );
+  }
+  if (line.type === 'col') {
+    const leftPct = (line.index / n + 1 / (2 * n)) * 100;
+    return (
+      <motion.div
+        style={{
+          position: 'absolute', left: `${leftPct}%`, top: '1%', bottom: '1%',
+          width: 3, background: LINE_GRADIENT_V, boxShadow: LINE_GLOW,
+          borderRadius: 4, transformOrigin: 'top center', zIndex: 5, pointerEvents: 'none',
+        }}
+        initial={{ scaleY: 0 }}
+        animate={{ scaleY: 1 }}
+        transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+      />
+    );
+  }
+  if (line.type === 'diag') {
+    const angle = line.index === 0 ? 45 : -45;
+    return (
+      <motion.div
+        style={{
+          position: 'absolute', top: '50%', left: '50%',
+          width: '141.4%', height: 3, background: LINE_GRADIENT_H, boxShadow: LINE_GLOW,
+          borderRadius: 4, marginLeft: '-70.7%', marginTop: -1.5,
+          transformOrigin: 'center center', zIndex: 5, pointerEvents: 'none',
+        }}
+        initial={{ scaleX: 0, rotate: angle }}
+        animate={{ scaleX: 1, rotate: angle }}
+        transition={{ duration: 0.55, ease: [0.4, 0, 0.2, 1] }}
+      />
+    );
+  }
+  return null;
+}
 
 function getCompletedLines(board, calledSet, n) {
   const lines = [];
@@ -43,17 +98,53 @@ export default function VictoryScreen({ send }) {
 
   const [showReplay, setShowReplay] = useState(false);
   const [replayIdx, setReplayIdx] = useState(0);
+  const prevLineCount = useRef(0);
 
   const n = winnerBoard ? Math.round(Math.sqrt(winnerBoard.length)) : 5;
 
-  // Auto-advance replay one number every 750 ms
+  // Derived replay state
+  const revealedSet = new Set(calledNumbers.slice(0, replayIdx));
+  const currentNum = calledNumbers[replayIdx - 1];
+  const completedLines = winnerBoard ? getCompletedLines(winnerBoard, revealedSet, n) : [];
+
+  // Auto-advance + sounds
   useEffect(() => {
     if (!showReplay || replayIdx >= calledNumbers.length) return;
-    const t = setTimeout(() => setReplayIdx((i) => i + 1), REPLAY_INTERVAL);
+
+    const t = setTimeout(() => {
+      const nextNum = calledNumbers[replayIdx];
+      const isOnBoard = winnerBoard?.includes(nextNum);
+
+      if (isOnBoard) {
+        // Check if this number completes a new line
+        const nextSet = new Set([...revealedSet, nextNum]);
+        const nextLines = getCompletedLines(winnerBoard, nextSet, n);
+        if (nextLines.length > completedLines.length) {
+          audioEngine.playLineComplete();
+        } else {
+          audioEngine.playTileMark();
+        }
+      }
+
+      setReplayIdx((i) => i + 1);
+    }, REPLAY_INTERVAL);
+
     return () => clearTimeout(t);
   }, [showReplay, replayIdx, calledNumbers.length]);
 
+  // Line-complete sound guard via ref (handles edge case of multiple lines at once)
+  useEffect(() => {
+    if (!showReplay) { prevLineCount.current = 0; return; }
+    const extra = completedLines.length - prevLineCount.current;
+    if (extra > 1) {
+      // More than one line completed simultaneously — play once more
+      audioEngine.playLineComplete();
+    }
+    prevLineCount.current = completedLines.length;
+  }, [completedLines.length, showReplay]);
+
   const handleShowReplay = () => {
+    prevLineCount.current = 0;
     setReplayIdx(0);
     setShowReplay(true);
   };
@@ -62,9 +153,6 @@ export default function VictoryScreen({ send }) {
 
   // ── Replay view ────────────────────────────────────────────────────────────
   if (showReplay && winnerBoard) {
-    const revealedSet = new Set(calledNumbers.slice(0, replayIdx));
-    const currentNum = calledNumbers[replayIdx - 1];
-    const completedLines = getCompletedLines(winnerBoard, revealedSet, n);
     const isDone = replayIdx >= calledNumbers.length;
     const winnerPlayer = room?.players.find((p) => p.id === winner?.id);
 
@@ -79,27 +167,38 @@ export default function VictoryScreen({ send }) {
             {isDone ? '✅ Replay complete' : `Replaying: ${replayIdx} / ${calledNumbers.length}`}
           </div>
 
-          <div className="replay-board" style={{ '--replay-n': n }}>
-            {winnerBoard.map((num, idx) => {
-              const isMarked = revealedSet.has(num);
-              const isCurrent = num === currentNum;
-              const inLine = isMarked && tileInLines(idx, completedLines, n);
-              return (
-                <motion.div
-                  key={idx}
-                  className={[
-                    'replay-tile',
-                    isMarked ? 'replay-tile--marked' : '',
-                    inLine ? 'replay-tile--in-line' : '',
-                    isCurrent ? 'replay-tile--current' : '',
-                  ].join(' ')}
-                  animate={isCurrent ? { scale: [1, 1.2, 1] } : {}}
-                  transition={{ duration: 0.3 }}
-                >
-                  {num}
-                </motion.div>
-              );
-            })}
+          {/* Board + strike overlays */}
+          <div style={{ position: 'relative', width: 'min(88vw, 380px)', aspectRatio: '1' }}>
+            <div
+              className="replay-board"
+              style={{ '--replay-n': n, position: 'absolute', inset: 0 }}
+            >
+              {winnerBoard.map((num, idx) => {
+                const isMarked = revealedSet.has(num);
+                const isCurrent = num === currentNum;
+                const inLine = isMarked && tileInLines(idx, completedLines, n);
+                return (
+                  <motion.div
+                    key={idx}
+                    className={[
+                      'replay-tile',
+                      isMarked ? 'replay-tile--marked' : '',
+                      inLine   ? 'replay-tile--in-line' : '',
+                      isCurrent ? 'replay-tile--current' : '',
+                    ].join(' ')}
+                    animate={isCurrent ? { scale: [1, 1.2, 1] } : {}}
+                    transition={{ duration: 0.3 }}
+                  >
+                    {num}
+                  </motion.div>
+                );
+              })}
+            </div>
+
+            {/* Animated strike lines */}
+            {completedLines.map((line) => (
+              <LineMarker key={`${line.type}-${line.index}`} line={line} n={n} />
+            ))}
           </div>
 
           <Button
