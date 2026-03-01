@@ -101,6 +101,8 @@ export class RoomService {
       connected: true,
       board: null,
       ready: false,
+      difficulty: 'hard',
+      botTurnCount: 0,
     };
     room.players.push(bot);
     this.playerRoom.set(bot.id, room.id);
@@ -153,6 +155,7 @@ export class RoomService {
     room.players.forEach((p) => {
       p.board = null;
       p.ready = false;
+      if (p.isBot) p.botTurnCount = 0;
     });
     return room;
   }
@@ -209,6 +212,7 @@ export class RoomService {
         ready: !!p.ready,
         connected: p.connected !== false,
         isBot: !!p.isBot,
+        difficulty: p.isBot ? (p.difficulty ?? 'hard') : undefined,
       })),
     };
   }

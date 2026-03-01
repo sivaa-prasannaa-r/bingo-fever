@@ -114,6 +114,19 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'SET_BOT_DIFFICULTY': {
+        const room = requireRoom(playerId);
+        if (room.host !== playerId) throw new Error('Only the host can change bot difficulty');
+        const bot = room.players.find((p) => p.isBot);
+        if (!bot) throw new Error('No bot in room');
+        const { difficulty } = payload;
+        if (!['easy', 'medium', 'hard'].includes(difficulty)) throw new Error('Invalid difficulty');
+        bot.difficulty = difficulty;
+        bot.botTurnCount = 0;
+        broadcastRoom(room);
+        break;
+      }
+
       case 'UPDATE_BOARD_SIZE': {
         const room = requireRoom(playerId);
         if (room.host !== playerId) throw new Error('Only host can change board size');
@@ -330,12 +343,32 @@ function autoCallNumber(room) {
   startTurnTimer(room);
 }
 
+function pickBotNumber(room, bot) {
+  const calledSet = new Set(room.engine.calledNumbers);
+  const uncalledOnBoard = bot.board.filter((num) => !calledSet.has(num));
+  if (uncalledOnBoard.length === 0) return null;
+
+  const difficulty = bot.difficulty ?? 'hard';
+
+  if (difficulty === 'easy') {
+    return uncalledOnBoard[Math.floor(Math.random() * uncalledOnBoard.length)];
+  }
+  if (difficulty === 'hard') {
+    return room.engine.getBotMove(bot.board);
+  }
+  // medium: odd turns = smart, even turns = random
+  bot.botTurnCount = (bot.botTurnCount ?? 0) + 1;
+  return bot.botTurnCount % 2 === 1
+    ? room.engine.getBotMove(bot.board)
+    : uncalledOnBoard[Math.floor(Math.random() * uncalledOnBoard.length)];
+}
+
 function botTakeTurn(room) {
   if (room.state !== 'GAME') return;
   const bot = room.players.find((p) => p.isBot && p.id === room.currentTurn);
   if (!bot) return;
 
-  const best = room.engine.getBotMove(bot.board);
+  const best = pickBotNumber(room, bot);
   if (best == null) return;
 
   clearTurnTimer(room);
