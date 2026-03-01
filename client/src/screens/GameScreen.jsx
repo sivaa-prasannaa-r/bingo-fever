@@ -1,76 +1,66 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import BingoBoard from '../components/board/BingoBoard';
-import CalledNumbers from '../components/CalledNumbers';
-import Button from '../components/ui/Button';
 import useGameStore from '../store/gameStore';
-import { checkWin } from '../utils/boardUtils';
-import { audioEngine } from '../audio/audioEngine';
+
+const BINGO_CHARS = ['B', 'I', 'N', 'G', 'O'];
 
 export default function GameScreen({ send }) {
   const {
     room, playerId,
     lastCalledNumber,
-    calledNumbers,
-    markedNumbers,
-    boardArrangement,
-    autoMark, setAutoMark,
-    completedLines,
+    lastCalledBy,
     pendingWin, setPendingWin,
-    countdownValue,
-    addCompletedLine,
+    playerLines,
+    currentTurn,
+    turnDeadlineMs,
   } = useGameStore();
 
-  const n = room?.boardSize ?? 5;
+  const myLineData   = playerLines[playerId];
+  const myLineCount  = myLineData?.lineCount ?? 0;
+  const isMyTurn     = currentTurn === playerId;
+  const currentPlayer = room?.players?.find((p) => p.id === currentTurn);
+  const turnWaitSecs = room?.turnWaitSecs ?? 15;
 
-  // Detect newly completed lines client-side
+  // Local countdown from server deadline
+  const [timeLeft, setTimeLeft] = useState(turnWaitSecs);
   useEffect(() => {
-    if (!boardArrangement || !room) return;
-    const win = checkWin(boardArrangement, markedNumbers, n);
-    if (win) {
-      const alreadyLogged = completedLines.some(
-        (l) => l.type === win.type && l.index === win.index && l.playerId === playerId,
-      );
-      if (!alreadyLogged) {
-        addCompletedLine({ ...win, playerId });
-      }
-    }
-  }, [markedNumbers, boardArrangement, n, completedLines, addCompletedLine, playerId, room]);
+    if (!turnDeadlineMs) { setTimeLeft(turnWaitSecs); return; }
+    const update = () => setTimeLeft(Math.max(0, Math.ceil((turnDeadlineMs - Date.now()) / 1000)));
+    update();
+    const id = setInterval(update, 500);
+    return () => clearInterval(id);
+  }, [turnDeadlineMs, turnWaitSecs]);
+
+  const urgentTimer = timeLeft <= 5 && timeLeft > 0;
 
   const handleBingo = () => {
     send('CLAIM_WIN', {});
     setPendingWin(false);
   };
 
-  const myLines    = completedLines.filter((l) => l.playerId === playerId);
-  const lineCount  = myLines.length;
-
   return (
     <div className="screen game-screen">
-      {/* ── Countdown overlay ── */}
-      <AnimatePresence>
-        {countdownValue !== null && (
-          <motion.div
-            className="countdown-overlay"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
+      {/* ── BINGO letters progress bar ── */}
+      <div className="bingo-progress">
+        {BINGO_CHARS.map((ch, i) => {
+          const done = i < myLineCount;
+          return (
             <motion.span
-              key={countdownValue}
-              className="countdown-num"
-              initial={{ scale: 2, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.5, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 300, damping: 18 }}
+              key={ch}
+              className={`bingo-prog-letter${done ? ' bingo-prog-letter--done' : ''}`}
+              animate={done ? { scale: [1, 1.35, 1], rotate: [0, -8, 8, 0] } : {}}
+              transition={{ duration: 0.5 }}
             >
-              {countdownValue === 0 ? 'GO!' : countdownValue}
+              {ch}
+              {done && <span className="bingo-prog-strike" />}
             </motion.span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          );
+        })}
+        <span className="bingo-prog-count">{myLineCount}/5</span>
+      </div>
 
-      {/* ── Called number reveal ── */}
+      {/* ── Last called number reveal ── */}
       <div className="number-reveal-area">
         <AnimatePresence mode="wait">
           {lastCalledNumber && (
@@ -82,7 +72,9 @@ export default function GameScreen({ send }) {
               exit={{ scale: 0.6, opacity: 0, y: -20 }}
               transition={{ type: 'spring', stiffness: 260, damping: 18 }}
             >
-              <div className="reveal-label">Called</div>
+              <div className="reveal-caller">
+                {lastCalledBy ? `${lastCalledBy.name} called` : 'Auto-called'}
+              </div>
               <div className="reveal-num">{lastCalledNumber}</div>
               <motion.div
                 className="reveal-glow"
@@ -94,38 +86,35 @@ export default function GameScreen({ send }) {
         </AnimatePresence>
       </div>
 
-      {/* ── Called history ── */}
-      <CalledNumbers />
+      {/* ── Turn banner with countdown ── */}
+      <div className={`turn-banner${isMyTurn ? ' turn-banner--mine' : ''}`}>
+        <div className="turn-banner-text">
+          {isMyTurn
+            ? '🎯 Your turn — tap any number on your board!'
+            : `⏳ ${currentPlayer?.name ?? '...'}'s turn`}
+        </div>
+        <div className="turn-timer-row">
+          <div className={`turn-progress-bar${urgentTimer ? ' turn-progress-bar--urgent' : ''}`}>
+            <motion.div
+              className="turn-progress-fill"
+              animate={{ width: `${(timeLeft / turnWaitSecs) * 100}%` }}
+              transition={{ duration: 0.5, ease: 'linear' }}
+            />
+          </div>
+          <span className={`turn-timer-num${urgentTimer ? ' turn-timer-num--urgent' : ''}`}>
+            {timeLeft}s
+          </span>
+        </div>
+      </div>
 
       {/* ── Board ── */}
       <div className="board-wrap">
         <BingoBoard send={send} />
       </div>
 
-      {/* ── Controls ── */}
-      <div className="game-controls">
-        <label className="auto-mark-toggle">
-          <input
-            type="checkbox"
-            checked={autoMark}
-            onChange={(e) => setAutoMark(e.target.checked)}
-          />
-          <span className="toggle-track">
-            <span className="toggle-thumb" />
-          </span>
-          <span className="toggle-label">Auto-Mark</span>
-        </label>
-
-        {lineCount > 0 && (
-          <div className="line-count-badge">
-            🔥 {lineCount} Line{lineCount > 1 ? 's' : ''}!
-          </div>
-        )}
-      </div>
-
-      {/* ── BINGO button ── */}
+      {/* ── BINGO button — fixed above player strip ── */}
       <AnimatePresence>
-        {pendingWin && (
+        {pendingWin && myLineCount >= 5 && (
           <motion.div
             className="bingo-claim-wrap"
             initial={{ scale: 0, opacity: 0 }}
@@ -137,11 +126,7 @@ export default function GameScreen({ send }) {
               className="bingo-btn"
               onClick={handleBingo}
               animate={{
-                boxShadow: [
-                  '0 0 16px #ffe66d',
-                  '0 0 40px #ff6b9d',
-                  '0 0 16px #ffe66d',
-                ],
+                boxShadow: ['0 0 16px #ffe66d', '0 0 40px #ff6b9d', '0 0 16px #ffe66d'],
               }}
               transition={{ repeat: Infinity, duration: 0.9 }}
               whileTap={{ scale: 0.92 }}
@@ -152,14 +137,29 @@ export default function GameScreen({ send }) {
         )}
       </AnimatePresence>
 
-      {/* ── Players sidebar ── */}
+      {/* ── Players strip — fixed at bottom ── */}
       <div className="players-strip">
-        {room?.players.map((p) => (
-          <div key={p.id} className={`strip-player ${p.id === playerId ? 'strip-player--me' : ''}`}>
-            <span className="strip-avatar">{p.name[0]?.toUpperCase()}</span>
-            <span className="strip-name">{p.name}</span>
-          </div>
-        ))}
+        {room?.players.map((p) => {
+          const pLineCount = playerLines[p.id]?.lineCount ?? 0;
+          const isActive   = p.id === currentTurn;
+          const isMe       = p.id === playerId;
+          return (
+            <div
+              key={p.id}
+              className={`strip-player${isMe ? ' strip-player--me' : ''}${isActive ? ' strip-player--active' : ''}`}
+            >
+              <span className="strip-avatar">{p.name[0]?.toUpperCase()}</span>
+              <span className="strip-name">{p.name}{isMe ? ' (you)' : ''}</span>
+              <div className="strip-bingo-letters">
+                {BINGO_CHARS.map((ch, i) => (
+                  <span key={ch} className={`strip-bl${i < pLineCount ? ' strip-bl--done' : ''}`}>
+                    {ch}
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

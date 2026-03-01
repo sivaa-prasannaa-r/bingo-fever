@@ -1,0 +1,15 @@
+the drag and drop the number into the box is not working correctly, the player is unable to drag the number and drop itinside the box.
+
+the room code is not randomaly generated. the player should be able to invite with link after creating the room. near the tab title, the icon is not there. 
+
+The icons and images are not good, fetch icons or image from online. 
+
+the whole screen is not responsive to the size of the screen. 
+
+the rules are wrong, the number is auto called that is wrong, each player will take the turn to select the number, that selected number should be called and shown to other player that this particular player called this number(like this) and it should be auto marked (highlighted) for other players.
+
+ Bingo means, the players are eligible to tap bingo only when there is 5 horizontal or vertical or cross lines. when continuous box are selected make an animation line to strike those boxes vertically, horizontally, and in cross. when one line is drawn, letter B in bingo will be striked and another line is completed means, next letter in the bingo should be striked. when all 5 letters in the bingo is striked then only the player is eligible to click the bingo button. the strike bingo of all players should be shown to each other player like in the players list.
+
+at the end it should show play again to continue playing the game in the next round. by max there can be only 4 players. 
+
+when the manual placement is selected and the time is out means then the rest of the not filled box should be auto filled with slow animation. i can see there is an bug, in the manual placement, when the time is out the board is not visible. the auto-mark should be enabled by default.

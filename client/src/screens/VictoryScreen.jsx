@@ -1,15 +1,19 @@
-import { useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import GlassPanel from '../components/ui/GlassPanel';
 import Button from '../components/ui/Button';
 import useGameStore from '../store/gameStore';
 
 const LETTER_DELAY = 0.08;
-const BINGO_LETTERS = ['B','I','N','G','O'];
+const BINGO_LETTERS = ['B', 'I', 'N', 'G', 'O'];
 
 export default function VictoryScreen({ send }) {
   const { winner, gameEndReason, playerId, resetForNewGame, room } = useGameStore();
   const isWinner = winner?.id === playerId;
+  const isHost = room?.host === playerId;
+
+  const handlePlayAgain = () => {
+    send('PLAY_AGAIN', {});
+  };
 
   return (
     <div className="screen victory-screen">
@@ -91,15 +95,30 @@ export default function VictoryScreen({ send }) {
                 transition={{ delay: 0.7 + i * 0.1 }}
               >
                 <span className="final-rank">{p.id === winner?.id ? '🥇' : '🎮'}</span>
-                <span>{p.name}</span>
+                <span>{p.name}{p.id === playerId ? ' (you)' : ''}</span>
               </motion.div>
             ))}
           </div>
         )}
 
         <div className="victory-actions">
+          {/* Play Again — host only */}
+          {isHost && (
+            <Button
+              variant="secondary"
+              style={{ width: '100%', fontSize: '1.05rem', marginBottom: 10 }}
+              onClick={handlePlayAgain}
+            >
+              🔄 Play Again
+            </Button>
+          )}
+          {!isHost && (
+            <p className="waiting-msg" style={{ marginBottom: 10 }}>
+              Waiting for host to start a new game…
+            </p>
+          )}
           <Button
-            variant="primary"
+            variant="ghost"
             style={{ width: '100%', fontSize: '1.05rem' }}
             onClick={resetForNewGame}
           >

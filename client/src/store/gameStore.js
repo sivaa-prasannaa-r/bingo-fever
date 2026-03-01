@@ -23,10 +23,16 @@ const useGameStore = create((set, get) => ({
   // ── Game ────────────────────────────────────────────────────────────────────
   calledNumbers: [],
   lastCalledNumber: null,
+  lastCalledBy: null,       // { id, name } — who called the last number
   markedNumbers: new Set(),
-  autoMark: false,
-  completedLines: [],
+  autoMark: true,           // enabled by default
+  completedLines: [],       // current player's completed lines (for tile highlighting)
   pendingWin: false,
+
+  // ── Turn-based ──────────────────────────────────────────────────────────────
+  currentTurn: null,        // playerId whose turn it is to call a number
+  turnDeadlineMs: null,     // Unix timestamp when current turn expires
+  playerLines: {},          // { [playerId]: { lineCount, lines: [{type, index}] } }
 
   // ── Victory ─────────────────────────────────────────────────────────────────
   winner: null,
@@ -98,7 +104,30 @@ const useGameStore = create((set, get) => ({
 
   setCountdownValue: (countdownValue) => set({ countdownValue }),
 
+  setCurrentTurn: (currentTurn) => set({ currentTurn }),
+
+  setTurnDeadlineMs: (turnDeadlineMs) => set({ turnDeadlineMs }),
+
+  setPlayerLines: (playerLines) => set({ playerLines }),
+
+  setLastCalledBy: (lastCalledBy) => set({ lastCalledBy }),
+
   setVolumes: (patch) => set(patch),
+
+  // Reset mid-game data when a new game starts (keeps boardArrangement)
+  resetGameData: () =>
+    set({
+      calledNumbers: [],
+      lastCalledNumber: null,
+      lastCalledBy: null,
+      markedNumbers: new Set(),
+      completedLines: [],
+      pendingWin: false,
+      currentTurn: null,
+      turnDeadlineMs: null,
+      playerLines: {},
+      countdownValue: null,
+    }),
 
   resetForNewGame: () =>
     set({
@@ -110,13 +139,17 @@ const useGameStore = create((set, get) => ({
       isSetupComplete: false,
       calledNumbers: [],
       lastCalledNumber: null,
+      lastCalledBy: null,
       markedNumbers: new Set(),
-      autoMark: false,
+      autoMark: true,
       completedLines: [],
       pendingWin: false,
       winner: null,
       gameEndReason: null,
       countdownValue: null,
+      currentTurn: null,
+      turnDeadlineMs: null,
+      playerLines: {},
     }),
 }));
 

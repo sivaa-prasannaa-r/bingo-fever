@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { RoomService } from './services/RoomService.js';
 
 const PORT = process.env.PORT || 3001;
+const TURN_SECS_DEFAULT = 15;   // fallback if room.turnWaitSecs is missing
 const roomService = new RoomService();
 
 // playerId -> WebSocket
@@ -29,6 +30,15 @@ function broadcastRoom(room) {
   broadcast(room, 'ROOM_UPDATED', roomService.serialize(room));
 }
 
+// Build playerLines summary for NUMBER_CALLED broadcasts
+function buildPlayerLines(room) {
+  return room.players.map((p) => ({
+    playerId: p.id,
+    lineCount: room.engine ? room.engine.countCompletedLines(p.board).length : 0,
+    lines: room.engine ? room.engine.countCompletedLines(p.board) : [],
+  }));
+}
+
 // ─── Connection ───────────────────────────────────────────────────────────────
 
 wss.on('connection', (ws) => {
@@ -52,6 +62,16 @@ wss.on('connection', (ws) => {
     const room = roomService.getRoomOf(playerId);
     if (room) {
       broadcastRoom(room);
+      // If it was this player's turn and game is active, advance turn
+      if (room.state === 'GAME' && room.currentTurn === playerId) {
+        const connected = room.players.filter((p) => p.connected && p.id !== playerId);
+        if (connected.length > 0) {
+          room.currentTurn = connected[0].id;
+          const deadline = Date.now() + roomSecs(room) * 1000;
+          broadcast(room, 'TURN_CHANGED', { nextTurn: room.currentTurn, turnDeadlineMs: deadline });
+          startTurnTimer(room);
+        }
+      }
       // Allow 30 s to reconnect before evicting
       setTimeout(() => {
         if (!clients.has(playerId)) {
@@ -66,11 +86,12 @@ wss.on('connection', (ws) => {
 
   function dispatch(ws, player, type, payload) {
     switch (type) {
+
       // ── Lobby / Room ──────────────────────────────────────────────────────
       case 'CREATE_ROOM': {
         player.name = sanitizeName(payload.playerName);
         const size = clampSize(payload.boardSize);
-        const room = roomService.createRoom(player, size);
+        const room = roomService.createRoom(player, size, payload.turnWaitSecs);
         send(ws, 'ROOM_CREATED', { room: roomService.serialize(room) });
         break;
       }
@@ -100,7 +121,6 @@ wss.on('connection', (ws) => {
         if (room.state !== 'LOBBY') throw new Error('Already started');
         const size = clampSize(payload.boardSize ?? room.boardSize);
         roomService.startSetup(room.id, size, (r) => {
-          // Auto-fill callback: notify each player of their board then check readiness
           for (const p of r.players) {
             const pw = clients.get(p.id);
             if (pw) send(pw, 'BOARD_AUTO_FILLED', { arrangement: p.board });
@@ -123,7 +143,51 @@ wss.on('connection', (ws) => {
         break;
       }
 
-      // ── Gameplay ──────────────────────────────────────────────────────────
+      // ── Gameplay: turn-based number calling ───────────────────────────────
+      case 'CALL_NUMBER': {
+        const room = requireRoom(playerId);
+        if (room.state !== 'GAME') return;
+        if (room.currentTurn !== playerId) {
+          send(ws, 'ERROR', { message: "It's not your turn!" });
+          return;
+        }
+        const { number } = payload;
+        if (typeof number !== 'number' || !Number.isInteger(number)) {
+          throw new Error('Invalid number');
+        }
+
+        clearTurnTimer(room);
+        room.engine.callNumber(number);
+
+        // Advance turn to next connected player
+        const connected = room.players.filter((p) => p.connected);
+        const curIdx = connected.findIndex((p) => p.id === playerId);
+        const nextIdx = (curIdx + 1) % connected.length;
+        room.currentTurn = connected[nextIdx]?.id ?? connected[0]?.id ?? null;
+
+        const callerPlayer = room.players.find((p) => p.id === playerId);
+        const playerLines = buildPlayerLines(room);
+        const nextDeadline = Date.now() + roomSecs(room) * 1000;
+
+        broadcast(room, 'NUMBER_CALLED', {
+          number,
+          calledBy: { id: playerId, name: callerPlayer?.name ?? 'Unknown' },
+          nextTurn: room.currentTurn,
+          playerLines,
+          turnDeadlineMs: nextDeadline,
+        });
+
+        // All numbers exhausted — game over
+        if (room.engine.isExhausted()) {
+          roomService.endGame(room);
+          broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
+          break;
+        }
+
+        startTurnTimer(room);
+        break;
+      }
+
       case 'MARK_TILE': {
         const room = requireRoom(playerId);
         if (room.state !== 'GAME') return;
@@ -136,6 +200,7 @@ wss.on('connection', (ws) => {
       case 'CLAIM_WIN': {
         const { room, player: p, result } = roomService.claimWin(playerId);
         if (result.valid) {
+          clearTurnTimer(room);
           roomService.endGame(room);
           broadcast(room, 'GAME_ENDED', {
             winner: { id: p.id, name: p.name },
@@ -143,8 +208,21 @@ wss.on('connection', (ws) => {
             reason: 'bingo',
           });
         } else {
-          send(ws, 'WIN_REJECTED', { message: 'Not a valid win — keep playing!' });
+          send(ws, 'WIN_REJECTED', { message: 'Need 5 complete lines for BINGO!' });
         }
+        break;
+      }
+
+      // ── Play Again — reset to LOBBY (host only) ───────────────────────────
+      case 'PLAY_AGAIN': {
+        const room = requireRoom(playerId);
+        if (room.host !== playerId) {
+          send(ws, 'ERROR', { message: 'Only the host can start a new game' });
+          return;
+        }
+        clearTurnTimer(room);
+        const updated = roomService.playAgain(room.id);
+        broadcast(updated, 'GAME_RESET', { room: roomService.serialize(updated) });
         break;
       }
 
@@ -157,11 +235,9 @@ wss.on('connection', (ws) => {
         const existing = room.players.find((p) => p.id === savedPlayerId);
         if (!existing) { send(ws, 'RECONNECT_FAILED', {}); break; }
 
-        // Transfer socket mapping
         clients.delete(playerId);
         existing.connected = true;
         clients.set(savedPlayerId, ws);
-        // Update local player ref for this connection
         Object.assign(player, existing);
 
         send(ws, 'RECONNECTED', {
@@ -169,6 +245,7 @@ wss.on('connection', (ws) => {
           room: roomService.serialize(room),
           calledNumbers: room.engine?.calledNumbers ?? [],
           board: existing.board,
+          currentTurn: room.currentTurn,
         });
         broadcastRoom(room);
         break;
@@ -179,6 +256,61 @@ wss.on('connection', (ws) => {
     }
   }
 });
+
+// ─── Turn timer ───────────────────────────────────────────────────────────────
+
+function roomSecs(room) {
+  return room.turnWaitSecs ?? TURN_SECS_DEFAULT;
+}
+
+function startTurnTimer(room) {
+  const secs = roomSecs(room);
+  clearTimeout(room.turnTimer);
+  room.turnDeadlineMs = Date.now() + secs * 1000;
+  room.turnTimer = setTimeout(() => autoCallNumber(room), secs * 1000);
+}
+
+function clearTurnTimer(room) {
+  clearTimeout(room.turnTimer);
+  room.turnTimer = null;
+  room.turnDeadlineMs = null;
+}
+
+function autoCallNumber(room) {
+  if (room.state !== 'GAME') return;
+  const pool = room.engine.numberPool;
+  if (pool.length === 0) return;
+
+  const number = pool[Math.floor(Math.random() * pool.length)];
+  room.engine.callNumber(number);
+
+  const connected = room.players.filter((p) => p.connected);
+  if (connected.length === 0) return;
+  const curIdx = connected.findIndex((p) => p.id === room.currentTurn);
+  const nextIdx = (curIdx + 1) % connected.length;
+  room.currentTurn = connected[nextIdx]?.id ?? connected[0]?.id ?? null;
+
+  const playerLines = buildPlayerLines(room);
+  const secs = roomSecs(room);
+  const nextDeadline = Date.now() + secs * 1000;
+
+  broadcast(room, 'NUMBER_CALLED', {
+    number,
+    calledBy: null,  // null = auto-called (timer expired)
+    nextTurn: room.currentTurn,
+    playerLines,
+    turnDeadlineMs: nextDeadline,
+  });
+
+  if (room.engine.isExhausted()) {
+    clearTurnTimer(room);
+    roomService.endGame(room);
+    broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
+    return;
+  }
+
+  startTurnTimer(room);
+}
 
 // ─── Game flow helpers ────────────────────────────────────────────────────────
 
@@ -199,15 +331,13 @@ function beginCountdown(room) {
 
 function startGame(room) {
   roomService.startGame(room);
-  broadcast(room, 'GAME_STARTED', { room: roomService.serialize(room) });
-
-  room.engine.start(
-    (number, sequence) => broadcast(room, 'NUMBER_CALLED', { number, sequence }),
-    () => {
-      room.state = 'ENDED';
-      broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
-    },
-  );
+  const deadline = Date.now() + roomSecs(room) * 1000;
+  broadcast(room, 'GAME_STARTED', {
+    room: roomService.serialize(room),
+    currentTurn: room.currentTurn,
+    turnDeadlineMs: deadline,
+  });
+  startTurnTimer(room);
 }
 
 // ─── Utility ──────────────────────────────────────────────────────────────────

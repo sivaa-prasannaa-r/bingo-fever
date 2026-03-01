@@ -5,74 +5,61 @@ export class GameEngine {
     this.boardSize = boardSize;
     this.seed = seed ?? Date.now();
     this.prng = createPRNG(this.seed);
-    this.numberPool = [];
+    this.numberPool = [];   // uncalled numbers (any order — player picks)
     this.calledNumbers = [];
-    this.timer = null;
-    this.callIntervalMs = 2000;
-    this.running = false;
   }
 
   generateSequence() {
     const max = this.boardSize * this.boardSize;
-    const numbers = Array.from({ length: max }, (_, i) => i + 1);
-    this.numberPool = shuffleArray(numbers, this.prng);
+    // Full pool — players choose which number to call each turn
+    this.numberPool = Array.from({ length: max }, (_, i) => i + 1);
     return [...this.numberPool];
   }
 
-  start(onNumber, onExhausted) {
-    this.running = true;
-    this._callNext(onNumber, onExhausted);
-  }
-
-  _callNext(onNumber, onExhausted) {
-    if (!this.running) return;
-    if (this.numberPool.length === 0) {
-      onExhausted();
-      return;
-    }
-    const number = this.numberPool.shift();
+  // Player-driven: call a specific number on their turn
+  callNumber(number) {
+    const idx = this.numberPool.indexOf(number);
+    if (idx === -1) throw new Error('Number already called or invalid');
+    this.numberPool.splice(idx, 1);
     this.calledNumbers.push(number);
-    onNumber(number, [...this.calledNumbers]);
-    this.timer = setTimeout(() => this._callNext(onNumber, onExhausted), this.callIntervalMs);
+    return [...this.calledNumbers];
   }
 
-  stop() {
-    this.running = false;
-    if (this.timer) {
-      clearTimeout(this.timer);
-      this.timer = null;
-    }
+  isExhausted() {
+    return this.numberPool.length === 0;
   }
 
-  validateWin(board) {
+  // Returns all completed lines for a board given current calledNumbers
+  countCompletedLines(board) {
+    if (!board) return [];
     const n = this.boardSize;
     const called = new Set(this.calledNumbers);
+    const lines = [];
 
     for (let r = 0; r < n; r++) {
       const row = board.slice(r * n, (r + 1) * n);
-      if (row.every((num) => called.has(num)))
-        return { valid: true, type: 'row', index: r };
+      if (row.every((num) => called.has(num))) lines.push({ type: 'row', index: r });
     }
-
     for (let c = 0; c < n; c++) {
       const col = Array.from({ length: n }, (_, r) => board[r * n + c]);
-      if (col.every((num) => called.has(num)))
-        return { valid: true, type: 'col', index: c };
+      if (col.every((num) => called.has(num))) lines.push({ type: 'col', index: c });
     }
+    const d1 = Array.from({ length: n }, (_, i) => board[i * n + i]);
+    if (d1.every((num) => called.has(num))) lines.push({ type: 'diag', index: 0 });
+    const d2 = Array.from({ length: n }, (_, i) => board[i * n + (n - 1 - i)]);
+    if (d2.every((num) => called.has(num))) lines.push({ type: 'diag', index: 1 });
 
-    const diag1 = Array.from({ length: n }, (_, i) => board[i * n + i]);
-    if (diag1.every((num) => called.has(num)))
-      return { valid: true, type: 'diag', index: 0 };
+    return lines;
+  }
 
-    const diag2 = Array.from({ length: n }, (_, i) => board[i * n + (n - 1 - i)]);
-    if (diag2.every((num) => called.has(num)))
-      return { valid: true, type: 'diag', index: 1 };
-
+  // Win requires >= 5 completed lines (B-I-N-G-O)
+  validateWin(board) {
+    const lines = this.countCompletedLines(board);
+    if (lines.length >= 5) return { valid: true, lines };
     return { valid: false };
   }
 
-  isFullBoard(board) {
-    const called = new Set(this.calledNumbers);
-    return board.every((num) => called.has(num));
+  stop() {
+    // No auto-timer in turn-based mode — nothing to stop
   }
 }

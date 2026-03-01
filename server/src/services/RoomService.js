@@ -1,10 +1,10 @@
 import { GameEngine } from './GameEngine.js';
 import { createPRNG, shuffleArray } from '../utils/prng.js';
 
-let roomCounter = 1000;
-
+// Random 6-char alphanumeric code (no confusable chars)
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function genRoomId() {
-  return (roomCounter++).toString(36).toUpperCase().padStart(4, '0');
+  return Array.from({ length: 6 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 }
 
 export class RoomService {
@@ -13,11 +13,12 @@ export class RoomService {
     this.playerRoom = new Map();  // playerId -> roomId
   }
 
-  createRoom(player, boardSize = 5) {
+  createRoom(player, boardSize = 5, turnWaitSecs = 15) {
     const id = genRoomId();
     const room = {
       id,
       boardSize: clamp(boardSize, 5, 10),
+      turnWaitSecs: clampTurnSecs(turnWaitSecs),
       state: 'LOBBY',
       host: player.id,
       players: [player],
@@ -25,6 +26,7 @@ export class RoomService {
       setupDeadlineMs: null,
       setupTimer: null,
       gameSeed: null,
+      currentTurn: null,
     };
     this.rooms.set(id, room);
     this.playerRoom.set(player.id, id);
@@ -35,8 +37,8 @@ export class RoomService {
     const room = this.rooms.get(roomId);
     if (!room) throw new Error('Room not found');
     if (room.state !== 'LOBBY') throw new Error('Game already in progress');
-    if (room.players.length >= 8) throw new Error('Room is full');
-    if (room.players.find((p) => p.id === player.id)) return room; // already in
+    if (room.players.length >= 4) throw new Error('Room is full (max 4 players)');
+    if (room.players.find((p) => p.id === player.id)) return room;
     room.players.push(player);
     this.playerRoom.set(player.id, room.id);
     return room;
@@ -53,7 +55,6 @@ export class RoomService {
       p.ready = false;
     });
 
-    // Auto-fill remaining players after 60 s
     room.setupTimer = setTimeout(() => {
       if (room.state !== 'SETUP') return;
       room.players.forEach((p) => {
@@ -93,6 +94,8 @@ export class RoomService {
     room.gameSeed = Date.now();
     room.engine = new GameEngine(room.boardSize, room.gameSeed);
     room.engine.generateSequence();
+    // First turn goes to host
+    room.currentTurn = room.host;
     return room;
   }
 
@@ -109,6 +112,25 @@ export class RoomService {
     room.state = 'ENDED';
   }
 
+  // Reset room to LOBBY for a new round (keep same players)
+  playAgain(roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room) throw new Error('Room not found');
+    room.state = 'LOBBY';
+    room.engine = null;
+    room.currentTurn = null;
+    room.setupDeadlineMs = null;
+    if (room.setupTimer) {
+      clearTimeout(room.setupTimer);
+      room.setupTimer = null;
+    }
+    room.players.forEach((p) => {
+      p.board = null;
+      p.ready = false;
+    });
+    return room;
+  }
+
   removePlayer(playerId) {
     const room = this._roomOf(playerId);
     if (!room) return null;
@@ -121,6 +143,11 @@ export class RoomService {
       return null;
     }
     if (room.host === playerId) room.host = room.players[0].id;
+    // If it was this player's turn, advance turn
+    if (room.currentTurn === playerId && room.state === 'GAME') {
+      const connected = room.players.filter((p) => p.connected);
+      room.currentTurn = connected.length > 0 ? connected[0].id : null;
+    }
     return room;
   }
 
@@ -145,9 +172,11 @@ export class RoomService {
     return {
       id: room.id,
       boardSize: room.boardSize,
+      turnWaitSecs: room.turnWaitSecs ?? 15,
       state: room.state,
       host: room.host,
       setupDeadlineMs: room.setupDeadlineMs,
+      currentTurn: room.currentTurn,
       players: room.players.map((p) => ({
         id: p.id,
         name: p.name,
@@ -165,6 +194,12 @@ export class RoomService {
 
 function clamp(v, min, max) {
   return Math.max(min, Math.min(max, Number(v) || min));
+}
+
+function clampTurnSecs(v) {
+  const valid = [5, 10, 15, 20, 25];
+  const n = Number(v);
+  return valid.includes(n) ? n : 15;
 }
 
 function autoBoard(n) {

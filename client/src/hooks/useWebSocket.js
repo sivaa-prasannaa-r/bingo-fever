@@ -1,14 +1,13 @@
 import { useEffect, useRef, useCallback } from 'react';
 import useGameStore from '../store/gameStore';
 import { audioEngine } from '../audio/audioEngine';
-import { checkWin, nearWinCount } from '../utils/boardUtils';
+import { nearWinCount } from '../utils/boardUtils';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
 
 export function useWebSocket() {
   const ws = useRef(null);
   const reconnTimer = useRef(null);
-  const store = useGameStore.getState;
 
   const send = useCallback((type, payload = {}) => {
     const socket = ws.current;
@@ -23,7 +22,6 @@ export function useWebSocket() {
 
     socket.onopen = () => {
       useGameStore.getState().setConnectionState('connected');
-      // Attempt session restore
       const { playerId, room } = useGameStore.getState();
       if (playerId && room) {
         socket.send(JSON.stringify({
@@ -66,7 +64,6 @@ function handleServerMessage(type, payload, send) {
 
   switch (type) {
     case 'CONNECTED':
-      // Always accept the server-assigned ID — stale localStorage values must not win
       s.setPlayerId(payload.playerId);
       break;
 
@@ -74,6 +71,7 @@ function handleServerMessage(type, payload, send) {
       s.setPlayerId(payload.playerId);
       s.setRoom(payload.room);
       s.setCalledNumbers(payload.calledNumbers ?? []);
+      s.setCurrentTurn(payload.currentTurn ?? null);
       if (payload.board) {
         s.setBoardArrangement(payload.board);
         s.setIsSetupComplete(true);
@@ -121,11 +119,14 @@ function handleServerMessage(type, payload, send) {
       break;
 
     case 'GAME_COUNTDOWN':
-      if (payload.count === 3) s.setScreen('GAME');
       s.setCountdownValue(payload.count);
       if (payload.count === 0) {
         audioEngine.playCountdownFinal();
-        setTimeout(() => s.setCountdownValue(null), 800);
+        // Switch to GAME after the "GO!" display clears
+        setTimeout(() => {
+          s.setScreen('GAME');
+          s.setCountdownValue(null);
+        }, 900);
       } else {
         audioEngine.playCountdownTick();
       }
@@ -134,28 +135,60 @@ function handleServerMessage(type, payload, send) {
     case 'GAME_STARTED':
       s.setScreen('GAME');
       s.setRoom(payload.room);
-      s.setCountdownValue(null);
+      s.resetGameData();
+      s.setCurrentTurn(payload.currentTurn ?? null);
+      s.setTurnDeadlineMs(payload.turnDeadlineMs ?? null);
       break;
 
     case 'NUMBER_CALLED': {
       audioEngine.duckMusic(2200);
       audioEngine.playNumberReveal(payload.number);
       s.addCalledNumber(payload.number);
+      s.setCurrentTurn(payload.nextTurn ?? null);
+      s.setTurnDeadlineMs(payload.turnDeadlineMs ?? null);
+      s.setLastCalledBy(payload.calledBy ?? null);
 
-      // Client-side win check
-      const { boardArrangement, room, markedNumbers } = useGameStore.getState();
+      // Update all players' line progress from server data
+      if (payload.playerLines) {
+        const plMap = {};
+        for (const pl of payload.playerLines) {
+          plMap[pl.playerId] = { lineCount: pl.lineCount, lines: pl.lines ?? [] };
+        }
+        s.setPlayerLines(plMap);
+
+        // Update own completed lines for tile highlighting
+        const myPl = plMap[s.playerId];
+        if (myPl) {
+          const myLines = myPl.lines.map((l) => ({ ...l, playerId: s.playerId }));
+          const prevCount = s.completedLines.length;
+          s.setCompletedLines(myLines);
+          // Play sound if a new line was completed
+          if (myLines.length > prevCount) {
+            audioEngine.playLineComplete();
+          }
+          // Enable BINGO button when 5 lines reached
+          if (myPl.lineCount >= 5 && !s.pendingWin) {
+            s.setPendingWin(true);
+          }
+        }
+      }
+
+      // Near-win audio anticipation
+      const { boardArrangement, room, markedNumbers, autoMark } = useGameStore.getState();
       if (boardArrangement && room) {
-        const newMarked = s.autoMark
+        const newMarked = autoMark
           ? new Set([...markedNumbers, payload.number])
           : markedNumbers;
-        const win = checkWin(boardArrangement, newMarked, room.boardSize);
-        if (win) s.setPendingWin(true);
-
         const nc = nearWinCount(boardArrangement, newMarked, room.boardSize);
         if (nc > 0) audioEngine.playNearWin();
       }
       break;
     }
+
+    case 'TURN_CHANGED':
+      s.setCurrentTurn(payload.nextTurn ?? null);
+      s.setTurnDeadlineMs(payload.turnDeadlineMs ?? null);
+      break;
 
     case 'TILE_MARKED':
       if (payload.playerId === s.playerId) audioEngine.playTileMark();
@@ -171,6 +204,24 @@ function handleServerMessage(type, payload, send) {
       s.setWinner(payload.winner);
       s.setGameEndReason(payload.reason);
       s.setScreen('VICTORY');
+      break;
+
+    case 'GAME_RESET':
+      // Host triggered Play Again — go back to room lobby
+      s.setRoom(payload.room);
+      s.setScreen('ROOM');
+      s.setCalledNumbers([]);
+      s.setCompletedLines([]);
+      s.setPendingWin(false);
+      s.setSetupMode(null);
+      s.setBoardArrangement(null);
+      s.setIsSetupComplete(false);
+      s.setCurrentTurn(null);
+      s.setTurnDeadlineMs(null);
+      s.setPlayerLines({});
+      s.setWinner(null);
+      s.setGameEndReason(null);
+      s.setLastCalledBy(null);
       break;
 
     case 'WIN_REJECTED':

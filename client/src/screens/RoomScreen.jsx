@@ -8,6 +8,7 @@ export default function RoomScreen({ send }) {
   const { room, playerId, resetForNewGame } = useGameStore();
   const [boardSize, setSize] = useState(room?.boardSize ?? 5);
   const [copied, setCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   if (!room) return null;
 
@@ -17,6 +18,14 @@ export default function RoomScreen({ send }) {
     navigator.clipboard.writeText(room.id).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const copyInviteLink = () => {
+    const url = `${window.location.origin}${window.location.pathname}?join=${room.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
     });
   };
 
@@ -43,6 +52,16 @@ export default function RoomScreen({ send }) {
             {room.id}
             <span className="copy-hint">{copied ? '✅ Copied!' : '📋 Tap to copy'}</span>
           </motion.div>
+
+          {/* Invite link */}
+          <motion.button
+            className="invite-link-btn"
+            onClick={copyInviteLink}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.96 }}
+          >
+            {linkCopied ? '✅ Link copied!' : '🔗 Copy Invite Link'}
+          </motion.button>
         </div>
 
         {/* Board size (host only) */}
@@ -67,7 +86,7 @@ export default function RoomScreen({ send }) {
 
         {/* Player list */}
         <div className="player-list">
-          <p className="input-label">Players ({room.players.length}/8)</p>
+          <p className="input-label">Players ({room.players.length}/4)</p>
           {room.players.map((p) => (
             <motion.div
               key={p.id}
@@ -86,14 +105,21 @@ export default function RoomScreen({ send }) {
 
         {/* Actions */}
         {isHost ? (
-          <Button
-            variant="primary"
-            style={{ width: '100%', fontSize: '1.1rem' }}
-            onClick={handleStart}
-            disabled={room.players.length < 1}
-          >
-            🎮 Start Game
-          </Button>
+          <>
+            <Button
+              variant="primary"
+              style={{ width: '100%', fontSize: '1.1rem' }}
+              onClick={handleStart}
+              disabled={room.players.length < 2}
+            >
+              🎮 Start Game
+            </Button>
+            {room.players.length < 2 && (
+              <p className="waiting-msg" style={{ marginTop: 6, fontSize: '0.82rem' }}>
+                Need at least 2 players to start
+              </p>
+            )}
+          </>
         ) : (
           <p className="waiting-msg">Waiting for host to start…</p>
         )}

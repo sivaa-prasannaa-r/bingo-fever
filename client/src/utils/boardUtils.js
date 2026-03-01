@@ -15,25 +15,31 @@ export function isInLine(position, completedLines, n) {
   return getCellLineIds(position, completedLines, n).length > 0;
 }
 
-/** Client-side win check — returns { type, index } or null */
-export function checkWin(board, markedNumbers, n) {
+/** Returns all completed lines given a board + marked numbers */
+export function getAllCompletedLines(board, markedNumbers, n) {
   const marked = new Set(markedNumbers);
+  const lines = [];
 
   for (let r = 0; r < n; r++) {
     const row = board.slice(r * n, (r + 1) * n);
-    if (row.every((num) => marked.has(num))) return { type: 'row', index: r };
+    if (row.every((num) => marked.has(num))) lines.push({ type: 'row', index: r });
   }
   for (let c = 0; c < n; c++) {
     const col = Array.from({ length: n }, (_, r) => board[r * n + c]);
-    if (col.every((num) => marked.has(num))) return { type: 'col', index: c };
+    if (col.every((num) => marked.has(num))) lines.push({ type: 'col', index: c });
   }
   const d1 = Array.from({ length: n }, (_, i) => board[i * n + i]);
-  if (d1.every((num) => marked.has(num))) return { type: 'diag', index: 0 };
-
+  if (d1.every((num) => marked.has(num))) lines.push({ type: 'diag', index: 0 });
   const d2 = Array.from({ length: n }, (_, i) => board[i * n + (n - 1 - i)]);
-  if (d2.every((num) => marked.has(num))) return { type: 'diag', index: 1 };
+  if (d2.every((num) => marked.has(num))) lines.push({ type: 'diag', index: 1 });
 
-  return null;
+  return lines;
+}
+
+/** Client-side win check — returns first completed line or null (backward compat) */
+export function checkWin(board, markedNumbers, n) {
+  const lines = getAllCompletedLines(board, markedNumbers, n);
+  return lines.length > 0 ? lines[0] : null;
 }
 
 /** Count near-wins (lines with exactly 1 cell remaining) */

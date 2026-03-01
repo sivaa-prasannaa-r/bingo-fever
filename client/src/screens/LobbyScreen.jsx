@@ -1,20 +1,34 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import GlassPanel from '../components/ui/GlassPanel';
 import Button from '../components/ui/Button';
 import useGameStore from '../store/gameStore';
 
+const TURN_TIME_OPTIONS = [5, 10, 15, 20, 25];
+
 export default function LobbyScreen({ send }) {
   const { playerName, setPlayerName } = useGameStore();
   const [tab, setTab]         = useState('home');   // 'home' | 'create' | 'join'
   const [boardSize, setSize]  = useState(5);
+  const [turnSecs, setTurnSecs] = useState(15);
   const [roomCode, setCode]   = useState('');
   const [error, setError]     = useState('');
+
+  // Auto-fill room code from invite link (?join=ROOMCODE)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const joinCode = params.get('join');
+    if (joinCode) {
+      setCode(joinCode.toUpperCase().trim());
+      setTab('join');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const handleCreate = () => {
     if (!playerName.trim()) { setError('Enter your name first'); return; }
     setError('');
-    send('CREATE_ROOM', { playerName: playerName.trim(), boardSize });
+    send('CREATE_ROOM', { playerName: playerName.trim(), boardSize, turnWaitSecs: turnSecs });
   };
 
   const handleJoin = () => {
@@ -62,7 +76,7 @@ export default function LobbyScreen({ send }) {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
           >
-            <label className="input-label">Board Size  ({boardSize}×{boardSize})</label>
+            <label className="input-label">Board Size ({boardSize}×{boardSize})</label>
             <input
               type="range"
               min={5}
@@ -72,6 +86,24 @@ export default function LobbyScreen({ send }) {
               className="range-input"
             />
             <p className="size-hint">{boardSize * boardSize} numbers · {boardSize}×{boardSize} grid</p>
+
+            {/* Turn time setting */}
+            <label className="input-label" style={{ marginTop: 14 }}>
+              ⏱ Turn Wait Time
+            </label>
+            <div className="turn-time-picker">
+              {TURN_TIME_OPTIONS.map((t) => (
+                <button
+                  key={t}
+                  className={`turn-time-btn${turnSecs === t ? ' turn-time-btn--active' : ''}`}
+                  onClick={() => setTurnSecs(t)}
+                >
+                  {t}s
+                </button>
+              ))}
+            </div>
+            <p className="size-hint">Each player has {turnSecs}s to pick a number</p>
+
             <div className="btn-row">
               <Button variant="ghost" onClick={() => setTab('home')}>← Back</Button>
               <Button variant="primary" onClick={handleCreate}>Create 🎯</Button>

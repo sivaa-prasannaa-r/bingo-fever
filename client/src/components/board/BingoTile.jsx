@@ -1,24 +1,26 @@
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function BingoTile({
   number,
   isMarked,
   isInLine,
   isCalled,
+  isPickable,
+  isJustCalled,
   onTap,
   size = 'md',
   'data-cell-index': cellIndex,
 }) {
   const handleTap = () => {
-    if (isCalled && !isMarked) onTap?.(number);
+    if (isPickable || (isCalled && !isMarked)) onTap?.(number);
   };
 
   return (
     <motion.div
       className={`bingo-tile bingo-tile--${size}
-        ${isMarked ? 'bingo-tile--marked' : ''}
-        ${isInLine  ? 'bingo-tile--in-line' : ''}
-        ${isCalled && !isMarked ? 'bingo-tile--callable' : ''}
+        ${isMarked    ? 'bingo-tile--marked'   : ''}
+        ${isInLine    ? 'bingo-tile--in-line'  : ''}
+        ${isPickable  ? 'bingo-tile--pickable' : (isCalled && !isMarked ? 'bingo-tile--callable' : '')}
       `}
       data-cell-index={cellIndex}
       onClick={handleTap}
@@ -27,14 +29,29 @@ export default function BingoTile({
       animate={
         isInLine
           ? { boxShadow: ['0 0 0px #ffe66d', '0 0 24px #ffe66d', '0 0 8px #ffe66d'] }
-          : {}
+          : isPickable
+            ? { boxShadow: ['0 0 0px #ffe66d33', '0 0 10px #ffe66d77', '0 0 0px #ffe66d33'] }
+            : {}
       }
       transition={
-        isInLine
-          ? { repeat: Infinity, duration: 1.2, ease: 'easeInOut' }
+        isInLine || isPickable
+          ? { repeat: Infinity, duration: 1.4, ease: 'easeInOut' }
           : { type: 'spring', stiffness: 400, damping: 20 }
       }
     >
+      {/* 2-second flash when a number is just called */}
+      <AnimatePresence>
+        {isJustCalled && (
+          <motion.div
+            className="tile-just-called"
+            initial={{ opacity: 1 }}
+            animate={{ opacity: 0 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 2, ease: [0.2, 0, 1, 1] }}
+          />
+        )}
+      </AnimatePresence>
+
       <motion.span
         className="tile-number"
         initial={false}
