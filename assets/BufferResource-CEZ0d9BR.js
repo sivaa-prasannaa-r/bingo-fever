@@ -1,4 +1,4 @@
-import{w as U,g,c,u as S,B as _,d as m,E as I,e as p}from"./ParticleSystem-DaZLx02H.js";const x={name:"local-uniform-bit",vertex:{header:`
+import{w as U,g,c,u as S,B as _,d as m,E as I,e as p}from"./ParticleSystem-BqR5zQP2.js";const x={name:"local-uniform-bit",vertex:{header:`
 
             struct LocalUniforms {
                 uTransformMatrix:mat3x3<f32>,
