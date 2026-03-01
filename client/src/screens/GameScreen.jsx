@@ -148,7 +148,7 @@ export default function GameScreen({ send }) {
               key={p.id}
               className={`strip-player${isMe ? ' strip-player--me' : ''}${isActive ? ' strip-player--active' : ' strip-player--inactive'}`}
             >
-              <span className="strip-avatar">{p.name[0]?.toUpperCase()}</span>
+              <span className="strip-avatar">{p.isBot ? '🤖' : p.name[0]?.toUpperCase()}</span>
               <span className="strip-name">{p.name}{isMe ? ' (you)' : ''}</span>
               <div className="strip-bingo-letters">
                 {BINGO_CHARS.map((ch, i) => (

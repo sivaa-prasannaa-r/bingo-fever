@@ -105,6 +105,15 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      case 'ADD_BOT': {
+        const room = requireRoom(playerId);
+        if (room.host !== playerId) throw new Error('Only the host can add a bot');
+        if (room.state !== 'LOBBY') throw new Error('Cannot add bot after game has started');
+        roomService.addBot(room.id);
+        broadcastRoom(room);
+        break;
+      }
+
       case 'UPDATE_BOARD_SIZE': {
         const room = requireRoom(playerId);
         if (room.host !== playerId) throw new Error('Only host can change board size');
@@ -264,8 +273,16 @@ function roomSecs(room) {
 }
 
 function startTurnTimer(room) {
-  const secs = roomSecs(room);
   clearTimeout(room.turnTimer);
+  const currentPlayer = room.players.find((p) => p.id === room.currentTurn);
+  if (currentPlayer?.isBot) {
+    // Bot "thinks" for 1.0–1.8 s then auto-calls the smart move
+    const delay = 1000 + Math.random() * 800;
+    room.turnDeadlineMs = Date.now() + delay;
+    room.turnTimer = setTimeout(() => botTakeTurn(room), delay);
+    return;
+  }
+  const secs = roomSecs(room);
   room.turnDeadlineMs = Date.now() + secs * 1000;
   room.turnTimer = setTimeout(() => autoCallNumber(room), secs * 1000);
 }
@@ -304,6 +321,56 @@ function autoCallNumber(room) {
 
   if (room.engine.isExhausted()) {
     clearTurnTimer(room);
+    roomService.endGame(room);
+    broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
+    return;
+  }
+
+  startTurnTimer(room);
+}
+
+function botTakeTurn(room) {
+  if (room.state !== 'GAME') return;
+  const bot = room.players.find((p) => p.isBot && p.id === room.currentTurn);
+  if (!bot) return;
+
+  const best = room.engine.getBotMove(bot.board);
+  if (best == null) return;
+
+  clearTurnTimer(room);
+  room.engine.callNumber(best);
+
+  // Check if bot has won
+  const botResult = room.engine.validateWin(bot.board);
+
+  // Advance turn to next connected player
+  const connected = room.players.filter((p) => p.connected);
+  const curIdx = connected.findIndex((p) => p.id === bot.id);
+  const nextIdx = (curIdx + 1) % connected.length;
+  room.currentTurn = botResult.valid ? null : (connected[nextIdx]?.id ?? null);
+
+  const playerLines = buildPlayerLines(room);
+  const nextDeadline = room.currentTurn ? Date.now() + roomSecs(room) * 1000 : null;
+
+  broadcast(room, 'NUMBER_CALLED', {
+    number: best,
+    calledBy: { id: bot.id, name: bot.name },
+    nextTurn: room.currentTurn,
+    playerLines,
+    turnDeadlineMs: nextDeadline,
+  });
+
+  if (botResult.valid) {
+    roomService.endGame(room);
+    broadcast(room, 'GAME_ENDED', {
+      winner: { id: bot.id, name: bot.name },
+      lineInfo: botResult,
+      reason: 'bingo',
+    });
+    return;
+  }
+
+  if (room.engine.isExhausted()) {
     roomService.endGame(room);
     broadcast(room, 'GAME_ENDED', { winner: null, reason: 'exhausted' });
     return;

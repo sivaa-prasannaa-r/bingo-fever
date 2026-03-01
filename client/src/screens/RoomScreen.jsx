@@ -95,7 +95,7 @@ export default function RoomScreen({ send }) {
               animate={{ opacity: 1, x: 0 }}
               transition={{ type: 'spring', stiffness: 300, damping: 22 }}
             >
-              <span className="player-avatar">{p.name[0]?.toUpperCase()}</span>
+              <span className="player-avatar">{p.isBot ? '🤖' : p.name[0]?.toUpperCase()}</span>
               <span className="player-name">{p.name}{p.id === playerId ? ' (you)' : ''}</span>
               {room.host === p.id && <span className="host-badge">👑 Host</span>}
               {!p.connected && <span className="dc-badge">💤</span>}
@@ -106,6 +106,15 @@ export default function RoomScreen({ send }) {
         {/* Actions */}
         {isHost ? (
           <>
+            {!room.players.some((p) => p.isBot) && room.players.length < 4 && (
+              <Button
+                variant="ghost"
+                style={{ width: '100%', marginBottom: 8 }}
+                onClick={() => send('ADD_BOT', {})}
+              >
+                🤖 Add Computer
+              </Button>
+            )}
             <Button
               variant="primary"
               style={{ width: '100%', fontSize: '1.1rem' }}

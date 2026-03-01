@@ -59,6 +59,37 @@ export class GameEngine {
     return { valid: false };
   }
 
+  // Smart bot: pick the uncalled number on `board` that scores highest.
+  // Score(num) = Σ over lines containing num: 2^(already_called_in_that_line)
+  // Exponential weighting strongly prefers finishing near-complete lines.
+  getBotMove(board) {
+    const n = this.boardSize;
+    const calledSet = new Set(this.calledNumbers);
+    const uncalled = board.filter((num) => !calledSet.has(num));
+    if (uncalled.length === 0) return null;
+
+    const lines = [];
+    for (let r = 0; r < n; r++) lines.push(board.slice(r * n, (r + 1) * n));
+    for (let c = 0; c < n; c++) lines.push(Array.from({ length: n }, (_, r) => board[r * n + c]));
+    lines.push(Array.from({ length: n }, (_, i) => board[i * n + i]));
+    lines.push(Array.from({ length: n }, (_, i) => board[i * n + (n - 1 - i)]));
+
+    const scores = new Map(uncalled.map((num) => [num, 0]));
+    for (const line of lines) {
+      const calledCount = line.filter((x) => calledSet.has(x)).length;
+      const weight = 1 << calledCount; // 1, 2, 4, 8, 16 — near-done lines dominate
+      for (const num of line) {
+        if (scores.has(num)) scores.set(num, scores.get(num) + weight);
+      }
+    }
+
+    let best = uncalled[0], bestScore = -1;
+    for (const [num, score] of scores) {
+      if (score > bestScore) { bestScore = score; best = num; }
+    }
+    return best;
+  }
+
   stop() {
     // No auto-timer in turn-based mode — nothing to stop
   }

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { GameEngine } from './GameEngine.js';
 import { createPRNG, shuffleArray } from '../utils/prng.js';
 
@@ -51,8 +52,14 @@ export class RoomService {
     room.state = 'SETUP';
     room.setupDeadlineMs = Date.now() + 60_000;
     room.players.forEach((p) => {
-      p.board = null;
-      p.ready = false;
+      if (p.isBot) {
+        // Bot always has a board ready immediately
+        p.board = autoBoard(room.boardSize);
+        p.ready = true;
+      } else {
+        p.board = null;
+        p.ready = false;
+      }
     });
 
     room.setupTimer = setTimeout(() => {
@@ -78,6 +85,25 @@ export class RoomService {
       throw new Error('Invalid board arrangement');
     player.board = arrangement;
     player.ready = true;
+    return room;
+  }
+
+  addBot(roomId) {
+    const room = this.rooms.get(roomId);
+    if (!room) throw new Error('Room not found');
+    if (room.state !== 'LOBBY') throw new Error('Cannot add bot after game has started');
+    if (room.players.length >= 4) throw new Error('Room is full (max 4 players)');
+    if (room.players.some((p) => p.isBot)) throw new Error('A bot is already in the room');
+    const bot = {
+      id: `bot-${randomUUID()}`,
+      name: 'Computer',
+      isBot: true,
+      connected: true,
+      board: null,
+      ready: false,
+    };
+    room.players.push(bot);
+    this.playerRoom.set(bot.id, room.id);
     return room;
   }
 
@@ -182,6 +208,7 @@ export class RoomService {
         name: p.name,
         ready: !!p.ready,
         connected: p.connected !== false,
+        isBot: !!p.isBot,
       })),
     };
   }
