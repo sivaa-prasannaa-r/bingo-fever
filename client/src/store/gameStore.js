@@ -37,6 +37,7 @@ const useGameStore = create((set, get) => ({
   // ── Victory ─────────────────────────────────────────────────────────────────
   winner: null,
   gameEndReason: null,
+  winnerBoard: null,
 
   // ── Audio ───────────────────────────────────────────────────────────────────
   masterVolume: 0.8,
@@ -102,6 +103,8 @@ const useGameStore = create((set, get) => ({
 
   setGameEndReason: (gameEndReason) => set({ gameEndReason }),
 
+  setWinnerBoard: (winnerBoard) => set({ winnerBoard }),
+
   setCountdownValue: (countdownValue) => set({ countdownValue }),
 
   setCurrentTurn: (currentTurn) => set({ currentTurn }),
@@ -146,6 +149,7 @@ const useGameStore = create((set, get) => ({
       pendingWin: false,
       winner: null,
       gameEndReason: null,
+      winnerBoard: null,
       countdownValue: null,
       currentTurn: null,
       turnDeadlineMs: null,

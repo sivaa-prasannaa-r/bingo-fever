@@ -1268,3 +1268,70 @@ html, body, #root {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── Winning Board Replay ───────────────────────────────────────────────────── */
+.replay-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 480px;
+  padding: 24px 16px 32px;
+}
+
+.replay-title {
+  font-family: 'Fredoka One', sans-serif;
+  font-size: 1.3rem;
+  color: var(--gold);
+  text-align: center;
+  text-shadow: 0 0 16px rgba(255, 230, 109, 0.5);
+}
+
+.replay-progress {
+  font-size: 0.82rem;
+  color: rgba(255, 255, 255, 0.55);
+  letter-spacing: 0.03em;
+}
+
+.replay-board {
+  display: grid;
+  grid-template-columns: repeat(var(--replay-n, 5), 1fr);
+  gap: 3px;
+  width: min(88vw, 380px);
+  aspect-ratio: 1;
+}
+
+.replay-tile {
+  aspect-ratio: 1;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Fredoka One', sans-serif;
+  font-size: clamp(0.5rem, calc(min(88vw, 380px) / var(--replay-n, 5) * 0.34), 1.3rem);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.25);
+  transition: background 0.25s, border-color 0.25s, color 0.25s, box-shadow 0.25s;
+}
+
+.replay-tile--marked {
+  background: rgba(78, 205, 196, 0.22);
+  border-color: rgba(78, 205, 196, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.replay-tile--in-line {
+  background: rgba(255, 230, 109, 0.28);
+  border-color: rgba(255, 230, 109, 0.75);
+  color: #ffe66d;
+  box-shadow: 0 0 10px rgba(255, 230, 109, 0.45);
+}
+
+.replay-tile--current {
+  background: rgba(255, 107, 157, 0.45);
+  border-color: #ff6b9d;
+  color: #fff;
+  box-shadow: 0 0 18px rgba(255, 107, 157, 0.75);
+}

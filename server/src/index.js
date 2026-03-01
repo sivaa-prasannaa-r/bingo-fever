@@ -215,6 +215,7 @@ wss.on('connection', (ws) => {
             winner: { id: p.id, name: p.name },
             lineInfo: result,
             reason: 'bingo',
+            winnerBoard: p.board,
           });
         } else {
           send(ws, 'WIN_REJECTED', { message: 'Need 5 complete lines for BINGO!' });
@@ -366,6 +367,7 @@ function botTakeTurn(room) {
       winner: { id: bot.id, name: bot.name },
       lineInfo: botResult,
       reason: 'bingo',
+      winnerBoard: bot.board,
     });
     return;
   }

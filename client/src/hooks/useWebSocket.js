@@ -203,6 +203,7 @@ function handleServerMessage(type, payload, send) {
       if (payload.winner) audioEngine.playVictory();
       s.setWinner(payload.winner);
       s.setGameEndReason(payload.reason);
+      s.setWinnerBoard(payload.winnerBoard ?? null);
       s.setScreen('VICTORY');
       break;
 
