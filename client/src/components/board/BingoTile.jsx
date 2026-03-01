@@ -27,27 +27,36 @@ export default function BingoTile({
       onTouchEnd={(e) => { e.preventDefault(); handleTap(); }}
       whileTap={{ scale: 0.88 }}
       animate={
-        isInLine
-          ? { boxShadow: ['0 0 0px #ffe66d', '0 0 24px #ffe66d', '0 0 8px #ffe66d'] }
-          : isPickable
-            ? { boxShadow: ['0 0 0px #ffe66d33', '0 0 10px #ffe66d77', '0 0 0px #ffe66d33'] }
-            : {}
+        isJustCalled
+          ? { boxShadow: [
+              'inset 0 0 0 0px rgba(255,215,0,0)',
+              'inset 0 0 0 5px rgba(255,215,0,1)',
+              'inset 0 0 0 4px rgba(255,215,0,0.6)',
+              'inset 0 0 0 0px rgba(255,215,0,0)',
+            ] }
+          : isInLine
+            ? { boxShadow: ['0 0 0px #ffe66d', '0 0 24px #ffe66d', '0 0 8px #ffe66d'] }
+            : isPickable
+              ? { boxShadow: ['0 0 0px #ffe66d33', '0 0 10px #ffe66d77', '0 0 0px #ffe66d33'] }
+              : {}
       }
       transition={
-        isInLine || isPickable
-          ? { repeat: Infinity, duration: 1.4, ease: 'easeInOut' }
-          : { type: 'spring', stiffness: 400, damping: 20 }
+        isJustCalled
+          ? { duration: 3, times: [0, 0.08, 0.4, 1] }
+          : isInLine || isPickable
+            ? { repeat: Infinity, duration: 1.4, ease: 'easeInOut' }
+            : { type: 'spring', stiffness: 400, damping: 20 }
       }
     >
-      {/* 2-second flash when a number is just called */}
+      {/* 3-second highlight when a number is just called */}
       <AnimatePresence>
         {isJustCalled && (
           <motion.div
             className="tile-just-called"
             initial={{ opacity: 1 }}
-            animate={{ opacity: 0 }}
+            animate={{ opacity: [1, 1, 0] }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 2, ease: [0.2, 0, 1, 1] }}
+            transition={{ duration: 3, times: [0, 0.55, 1] }}
           />
         )}
       </AnimatePresence>

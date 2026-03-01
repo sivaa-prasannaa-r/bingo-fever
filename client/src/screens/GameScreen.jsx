@@ -146,7 +146,7 @@ export default function GameScreen({ send }) {
           return (
             <div
               key={p.id}
-              className={`strip-player${isMe ? ' strip-player--me' : ''}${isActive ? ' strip-player--active' : ''}`}
+              className={`strip-player${isMe ? ' strip-player--me' : ''}${isActive ? ' strip-player--active' : ' strip-player--inactive'}`}
             >
               <span className="strip-avatar">{p.name[0]?.toUpperCase()}</span>
               <span className="strip-name">{p.name}{isMe ? ' (you)' : ''}</span>

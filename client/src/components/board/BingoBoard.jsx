@@ -108,7 +108,7 @@ export default function BingoBoard({ send }) {
   useEffect(() => {
     if (lastCalledNumber == null) return;
     setJustCalledNumber(lastCalledNumber);
-    const t = setTimeout(() => setJustCalledNumber(null), 2000);
+    const t = setTimeout(() => setJustCalledNumber(null), 3000);
     return () => clearTimeout(t);
   }, [lastCalledNumber]);
 

@@ -510,7 +510,7 @@ html, body, #root {
   border: 1.5px solid rgba(255,255,255,0.30);
   border-radius: clamp(5px, 1.3vw, 9px);
   font-family: 'Fredoka One', sans-serif;
-  font-size: clamp(0.65rem, 2.2vw, 1rem);
+  font-size: clamp(1rem, 3.5vw, 1.55rem);
   color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,0.8);
   cursor: pointer;
@@ -566,18 +566,14 @@ html, body, #root {
 
 .tile-number { position: relative; z-index: 5; }
 
-/* 2-second highlight when a number is just called */
+/* 3-second highlight when a number is just called */
 .tile-just-called {
   position: absolute;
-  inset: -2px;
-  background: rgba(255, 240, 120, 0.75);
-  border: 2px solid rgba(255, 255, 255, 0.95);
+  inset: 0;
+  background: rgba(255, 215, 0, 0.92);
   border-radius: inherit;
   z-index: 4;
   pointer-events: none;
-  box-shadow:
-    0 0 18px rgba(255, 230, 109, 0.9),
-    0 0 36px rgba(255, 255, 255, 0.5);
 }
 
 /* Mark sweep fill */
@@ -933,10 +929,19 @@ html, body, #root {
   box-shadow: 0 0 8px rgba(255,230,109,0.5);
 }
 
-/* Active player — red highlight */
+/* Active player — full card blue highlight */
+.strip-player--active {
+  background: rgba(0, 160, 255, 0.18);
+  border: 1.5px solid rgba(0, 160, 255, 0.55);
+}
 .strip-player--active .strip-avatar {
-  border: 2.5px solid #FF4444;
-  box-shadow: 0 0 10px rgba(255, 68, 68, 0.7);
+  border: 2.5px solid #00A0FF;
+  box-shadow: 0 0 12px rgba(0, 160, 255, 0.85);
+}
+
+/* Inactive players — greyed out */
+.strip-player--inactive {
+  opacity: 0.4;
 }
 
 .strip-avatar {
