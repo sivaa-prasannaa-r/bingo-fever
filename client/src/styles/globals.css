@@ -510,7 +510,7 @@ html, body, #root {
   border: 1.5px solid rgba(255,255,255,0.30);
   border-radius: clamp(5px, 1.3vw, 9px);
   font-family: 'Fredoka One', sans-serif;
-  font-size: clamp(1rem, 3.5vw, 1.55rem);
+  font-size: clamp(0.6rem, calc(min(92vw, 400px) / var(--board-n, 5) * 0.36), 1.45rem);
   color: #fff;
   text-shadow: 0 1px 3px rgba(0,0,0,0.8);
   cursor: pointer;
